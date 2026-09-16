@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "bazaar_advisor",
+	"version": "${version}",
+	"name": "Bazaar Advisor",
+	"description": "Client-side Bazaar and BIN auction recommendations by HypedSophie.",
+	"authors": ["HypedSophie"],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["com.example.client.ExampleModClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
