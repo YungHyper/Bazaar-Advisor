@@ -235,10 +235,11 @@ public final class ExampleModClient implements ClientModInitializer {
             if (!auction.has("bin") || !auction.get("bin").getAsBoolean()) return;
             String itemName = auction.has("item_name") ? auction.get("item_name").getAsString() : "Unknown item";
             String lore = auction.has("item_lore") ? auction.get("item_lore").getAsString() : "";
+            String itemBytes = auction.has("item_bytes") ? auction.get("item_bytes").getAsString() : "";
             String uuid = auction.has("uuid") ? auction.get("uuid").getAsString() : "";
             double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
             if (!uuid.isEmpty() && price > 0) {
-                String signature = itemSignature(itemName, lore);
+                String signature = itemSignature(itemName, lore, itemBytes);
                 groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore)));
             }
         });
@@ -258,8 +259,9 @@ public final class ExampleModClient implements ClientModInitializer {
         return flips;
     }
 
-    private static String itemSignature(String itemName, String lore) {
-        return (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
+    private static String itemSignature(String itemName, String lore, String itemBytes) {
+        String visibleData = (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
+        return visibleData + "|nbt:" + itemBytes.hashCode();
     }
 
     private static String rarityFromLore(String lore) {
