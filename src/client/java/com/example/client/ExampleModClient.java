@@ -61,6 +61,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static int auctionFlipCount = 3;
     private static int auctionScanTicks;
     private static boolean auctionScanInProgress;
+    private static boolean auctionScanStarted;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
@@ -72,7 +73,8 @@ public final class ExampleModClient implements ClientModInitializer {
             while (openKey.consumeClick() && client.screen != null && isBazaarScreen(client.screen)) {
                 advisorVisible = !advisorVisible;
             }
-            if (auctionFlipsEnabled && client.player != null && ++auctionScanTicks >= 1200) {
+            if (auctionFlipsEnabled && client.player != null && (!auctionScanStarted || ++auctionScanTicks >= 1200)) {
+                auctionScanStarted = true;
                 auctionScanTicks = 0;
                 scanAuctions();
             }
