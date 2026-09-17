@@ -62,6 +62,9 @@ public final class ExampleModClient implements ClientModInitializer {
     private static int auctionScanTicks;
     private static boolean auctionScanInProgress;
     private static boolean auctionScanStarted;
+    private static int auctionScanIntervalTicks = 100;
+    private static int auctionPage;
+    private static int auctionTotalPages = 1;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
@@ -73,7 +76,7 @@ public final class ExampleModClient implements ClientModInitializer {
             while (openKey.consumeClick() && client.screen != null && isBazaarScreen(client.screen)) {
                 advisorVisible = !advisorVisible;
             }
-            if (auctionFlipsEnabled && client.player != null && (!auctionScanStarted || ++auctionScanTicks >= 1200)) {
+            if (auctionFlipsEnabled && client.player != null && (!auctionScanStarted || ++auctionScanTicks >= auctionScanIntervalTicks)) {
                 auctionScanStarted = true;
                 auctionScanTicks = 0;
                 scanAuctions();
@@ -96,6 +99,11 @@ public final class ExampleModClient implements ClientModInitializer {
                             auctionFlipCount = IntegerArgumentType.getInteger(context, "amount");
                             context.getSource().sendFeedback(Component.literal("Auction flip messages: " + auctionFlipCount).withStyle(ChatFormatting.AQUA));
                             if (auctionFlipsEnabled) scanAuctions();
+                            return 1;
+                        })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("interval").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(5, 60)).executes(context -> {
+                            auctionScanIntervalTicks = IntegerArgumentType.getInteger(context, "seconds") * 20;
+                            context.getSource().sendFeedback(Component.literal("Auction scan interval: " + auctionScanIntervalTicks / 20 + "s").withStyle(ChatFormatting.AQUA));
                             return 1;
                         })))
         ));
@@ -186,12 +194,12 @@ public final class ExampleModClient implements ClientModInitializer {
     private static void scanAuctions() {
         if (!auctionFlipsEnabled || auctionScanInProgress) return;
         auctionScanInProgress = true;
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.hypixel.net/v2/skyblock/auctions?page=0")).GET().build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.hypixel.net/v2/skyblock/auctions?page=" + auctionPage)).GET().build();
         HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(HttpResponse::body)
-                .thenApply(ExampleModClient::parseAuctionFlips)
+                .thenApply(body -> parseAuctionResponse(body))
                 .thenAccept(flips -> Minecraft.getInstance().execute(() -> {
-                    List<AuctionFlip> freshFlips = flips.stream()
+                    List<AuctionFlip> freshFlips = flips.flips().stream()
                             .filter(flip -> notifiedAuctionIds.add(flip.uuid()))
                             .limit(auctionFlipCount)
                             .toList();
@@ -200,6 +208,8 @@ public final class ExampleModClient implements ClientModInitializer {
                         freshFlips.forEach(ExampleModClient::sendFlipMessage);
                     }
                         if (notifiedAuctionIds.size() > 500) notifiedAuctionIds.clear();
+                        auctionTotalPages = flips.totalPages();
+                        auctionPage = (auctionPage + 1) % Math.max(1, auctionTotalPages);
                     auctionScanInProgress = false;
                 }))
                 .exceptionally(error -> {
@@ -214,9 +224,8 @@ public final class ExampleModClient implements ClientModInitializer {
     }
 
     private static void sendFlipMessage(AuctionFlip flip) {
-        String rarity = flip.rarity().isEmpty() ? "" : "[" + flip.rarity() + "] ";
-        Component message = Component.literal("  " + rarity + flip.itemName() + "  ")
-                .withStyle(ChatFormatting.AQUA)
+        Component message = Component.literal("  " + flip.itemName() + "  ")
+            .withStyle(rarityColor(flip.rarity()))
                 .append(Component.literal("BUY " + formatCoins(flip.buyPrice()) + "  ").withStyle(style -> style
                         .withColor(ChatFormatting.YELLOW)
                         .withClickEvent(new ClickEvent.RunCommand("/viewauction " + flip.uuid()))
@@ -226,10 +235,23 @@ public final class ExampleModClient implements ClientModInitializer {
         sendChat(message);
     }
 
-    private static List<AuctionFlip> parseAuctionFlips(String body) {
+    private static ChatFormatting rarityColor(String rarity) {
+        return switch (rarity) {
+            case "COMMON" -> ChatFormatting.WHITE;
+            case "UNCOMMON" -> ChatFormatting.GREEN;
+            case "RARE" -> ChatFormatting.BLUE;
+            case "EPIC" -> ChatFormatting.DARK_PURPLE;
+            case "LEGENDARY" -> ChatFormatting.GOLD;
+            case "MYTHIC", "SUPREME", "VERY SPECIAL" -> ChatFormatting.LIGHT_PURPLE;
+            default -> ChatFormatting.AQUA;
+        };
+    }
+
+    private static AuctionResponse parseAuctionResponse(String body) {
         Map<String, List<AuctionListing>> groups = new HashMap<>();
         JsonObject root = JsonParser.parseString(body).getAsJsonObject();
-        if (!root.has("auctions")) return List.of();
+        int totalPages = root.has("totalPages") ? root.get("totalPages").getAsInt() : 1;
+        if (!root.has("auctions")) return new AuctionResponse(List.of(), totalPages);
         root.getAsJsonArray("auctions").forEach(element -> {
             JsonObject auction = element.getAsJsonObject();
             if (!auction.has("bin") || !auction.get("bin").getAsBoolean()) return;
@@ -256,12 +278,12 @@ public final class ExampleModClient implements ClientModInitializer {
             }
         });
         flips.sort(Comparator.comparingDouble(AuctionFlip::estimatedProfit).reversed());
-        return flips;
+        return new AuctionResponse(flips, totalPages);
     }
 
     private static String itemSignature(String itemName, String lore, String itemBytes) {
         String visibleData = (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
-        return visibleData + "|nbt:" + itemBytes.hashCode();
+        return visibleData.isBlank() ? itemName.toLowerCase() + "|nbt:" + itemBytes.hashCode() : visibleData;
     }
 
     private static String rarityFromLore(String lore) {
@@ -388,4 +410,6 @@ public final class ExampleModClient implements ClientModInitializer {
     private record AuctionListing(String uuid, double price, String itemName, String rarity) {}
 
     private record AuctionFlip(String itemName, String rarity, String uuid, double buyPrice, double estimatedProfit) {}
+
+    private record AuctionResponse(List<AuctionFlip> flips, int totalPages) {}
 }
