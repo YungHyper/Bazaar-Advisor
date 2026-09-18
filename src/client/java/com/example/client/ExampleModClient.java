@@ -47,24 +47,28 @@ public final class ExampleModClient implements ClientModInitializer {
     private static KeyMapping openKey;
     private static boolean advisorVisible;
     private static boolean editMode;
-    private static boolean booksOnly;
+    private static int booksMode;
     private static boolean hideSuspicious = true;
     private static int sortMode;
     private static double scale = 1.0;
     private static int panelX = 20;
     private static int panelY = 30;
+    private static int visibleTradeRows = 3;
     private static List<Trade> trades = List.of();
     private static String status = "Loading Bazaar data...";
     private static Button plusButton;
     private static Button minusButton;
+    private static Button showMoreButton;
+    private static Button showLessButton;
     private static boolean auctionFlipsEnabled = true;
     private static int auctionFlipCount = 3;
     private static int auctionScanTicks;
     private static boolean auctionScanInProgress;
     private static boolean auctionScanStarted;
-    private static int auctionScanIntervalTicks = 100;
+    private static int auctionScanIntervalTicks = 20;
     private static int auctionPage;
     private static int auctionTotalPages = 1;
+    private static long minimumAuctionProfit = 250_000L;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
@@ -101,9 +105,15 @@ public final class ExampleModClient implements ClientModInitializer {
                             if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
-                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("interval").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(5, 60)).executes(context -> {
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("interval").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(1, 60)).executes(context -> {
                             auctionScanIntervalTicks = IntegerArgumentType.getInteger(context, "seconds") * 20;
                             context.getSource().sendFeedback(Component.literal("Auction scan interval: " + auctionScanIntervalTicks / 20 + "s").withStyle(ChatFormatting.AQUA));
+                            return 1;
+                        })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("minprofit").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("amount", IntegerArgumentType.integer(1000, 100000000)).executes(context -> {
+                            minimumAuctionProfit = IntegerArgumentType.getInteger(context, "amount");
+                            context.getSource().sendFeedback(Component.literal("Min auction profit: " + formatCoins((double) minimumAuctionProfit)).withStyle(ChatFormatting.AQUA));
+                            if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
         ));
@@ -128,9 +138,9 @@ public final class ExampleModClient implements ClientModInitializer {
                 button.setMessage(Component.literal("Sort: " + sortLabel()));
                 refreshStatus();
             }).bounds(screen.width - 345, screen.height - 52, 105, 20).build();
-            Button booksButton = Button.builder(Component.literal("Books: ALL"), button -> {
-                booksOnly = !booksOnly;
-                button.setMessage(Component.literal(booksOnly ? "Books: ONLY" : "Books: ALL"));
+            Button booksButton = Button.builder(Component.literal("Books: " + booksLabel()), button -> {
+                booksMode = (booksMode + 1) % 3;
+                button.setMessage(Component.literal("Books: " + booksLabel()));
                 refreshStatus();
             }).bounds(screen.width - 235, screen.height - 52, 105, 20).build();
             Button riskButton = Button.builder(Component.literal("Risk: HIDE"), button -> {
@@ -138,6 +148,14 @@ public final class ExampleModClient implements ClientModInitializer {
                 button.setMessage(Component.literal(hideSuspicious ? "Risk: HIDE" : "Risk: SHOW"));
                 refreshStatus();
             }).bounds(screen.width - 125, screen.height - 52, 115, 20).build();
+            showMoreButton = Button.builder(Component.literal("Rows +"), button -> {
+                visibleTradeRows = Math.min(8, visibleTradeRows + 1);
+                refreshStatus();
+            }).bounds(screen.width - 345, screen.height - 76, 70, 20).build();
+            showLessButton = Button.builder(Component.literal("Rows -"), button -> {
+                visibleTradeRows = Math.max(1, visibleTradeRows - 1);
+                refreshStatus();
+            }).bounds(screen.width - 270, screen.height - 76, 70, 20).build();
             extensions.fabric_getButtons().add(advisorButton);
             extensions.fabric_getButtons().add(editButton);
             extensions.fabric_getButtons().add(plusButton);
@@ -145,6 +163,8 @@ public final class ExampleModClient implements ClientModInitializer {
             extensions.fabric_getButtons().add(sortButton);
             extensions.fabric_getButtons().add(booksButton);
             extensions.fabric_getButtons().add(riskButton);
+            extensions.fabric_getButtons().add(showMoreButton);
+            extensions.fabric_getButtons().add(showLessButton);
             plusButton.visible = editMode;
             minusButton.visible = editMode;
             ScreenEvents.afterExtract(screen).register((current, context, mouseX, mouseY, delta) -> {
@@ -173,6 +193,14 @@ public final class ExampleModClient implements ClientModInitializer {
             case 2 -> "VOLUME";
             case 3 -> "ROI";
             default -> "FAST";
+        };
+    }
+
+    private static String booksLabel() {
+        return switch (booksMode) {
+            case 1 -> "ONLY";
+            case 2 -> "HIDE";
+            default -> "ALL";
         };
     }
 
@@ -270,10 +298,14 @@ public final class ExampleModClient implements ClientModInitializer {
             listings.sort(Comparator.comparingDouble(AuctionListing::price));
             if (listings.size() < 2) return;
             AuctionListing cheapest = listings.get(0);
-            double comparable = listings.subList(1, Math.min(listings.size(), 6)).stream()
-                    .mapToDouble(AuctionListing::price).sorted().skip(Math.max(0, Math.min(listings.size(), 6) - 2) / 2).findFirst().orElse(listings.get(1).price());
+            AuctionListing comparableEntry = listings.stream()
+                    .skip(1)
+                    .filter(entry -> entry.price() > cheapest.price())
+                    .findFirst()
+                    .orElse(listings.get(1));
+            double comparable = comparableEntry.price();
             double estimatedProfit = comparable * (1.0 - TAX_RATE) - cheapest.price();
-            if (estimatedProfit >= 1000 && estimatedProfit / cheapest.price() >= 0.05) {
+            if (estimatedProfit >= minimumAuctionProfit && estimatedProfit / cheapest.price() >= 0.05) {
                 flips.add(new AuctionFlip(cheapest.itemName(), cheapest.rarity(), cheapest.uuid(), cheapest.price(), estimatedProfit));
             }
         });
@@ -329,7 +361,11 @@ public final class ExampleModClient implements ClientModInitializer {
 
     private static List<Trade> filteredTrades() {
         return trades.stream()
-                .filter(trade -> !booksOnly || trade.book())
+                .filter(trade -> switch (booksMode) {
+                    case 1 -> trade.book();
+                    case 2 -> !trade.book();
+                    default -> true;
+                })
                 .filter(trade -> !hideSuspicious || !trade.suspicious())
                 .sorted((left, right) -> Double.compare(score(right), score(left)))
                 .toList();
@@ -361,7 +397,7 @@ public final class ExampleModClient implements ClientModInitializer {
         if (visibleTrades.isEmpty()) {
             text.accept(panelX + 12, row, Component.literal("No trades match these filters.").withStyle(ChatFormatting.YELLOW));
         } else {
-            for (Trade trade : visibleTrades.stream().limit(3).toList()) {
+            for (Trade trade : visibleTrades.stream().limit(visibleTradeRows).toList()) {
                 String line = "%s  +%s  vol %s  %s".formatted(bazaarName(trade.product()), formatCoins(trade.profit()), formatCoins(trade.volume()), formatPercent(trade.roi()));
                 ChatFormatting color = trade.suspicious() ? ChatFormatting.RED : trade.roi() >= 0.1 ? ChatFormatting.GREEN : ChatFormatting.AQUA;
                 text.accept(panelX + 12, row, Component.literal(line).withStyle(color));
@@ -369,6 +405,7 @@ public final class ExampleModClient implements ClientModInitializer {
             }
         }
         text.accept(panelX + 12, panelY + panelHeight - 18, Component.literal(editMode ? "EDIT: drag | wheel or +/- resize" : "Edit GUI enables drag and resize").withStyle(ChatFormatting.GOLD));
+        text.accept(panelX + 210, panelY + panelHeight - 18, Component.literal("Rows " + visibleTradeRows).withStyle(ChatFormatting.GRAY));
     }
 
     private static String formatCoins(double value) {
