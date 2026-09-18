@@ -65,10 +65,11 @@ public final class ExampleModClient implements ClientModInitializer {
     private static int auctionScanTicks;
     private static boolean auctionScanInProgress;
     private static boolean auctionScanStarted;
-    private static int auctionScanIntervalTicks = 20;
+    private static int auctionScanIntervalTicks = 100;
     private static int auctionPage;
     private static int auctionTotalPages = 1;
     private static long minimumAuctionProfit = 250_000L;
+    private static final double MIN_PROFIT_RATIO = 0.12;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
@@ -296,21 +297,35 @@ public final class ExampleModClient implements ClientModInitializer {
         List<AuctionFlip> flips = new ArrayList<>();
         groups.forEach((itemName, listings) -> {
             listings.sort(Comparator.comparingDouble(AuctionListing::price));
-            if (listings.size() < 2) return;
+            if (listings.size() < 3) return;
             AuctionListing cheapest = listings.get(0);
-            AuctionListing comparableEntry = listings.stream()
+            List<Double> higherPrices = listings.stream()
                     .skip(1)
-                    .filter(entry -> entry.price() > cheapest.price())
-                    .findFirst()
-                    .orElse(listings.get(1));
-            double comparable = comparableEntry.price();
-            double estimatedProfit = comparable * (1.0 - TAX_RATE) - cheapest.price();
-            if (estimatedProfit >= minimumAuctionProfit && estimatedProfit / cheapest.price() >= 0.05) {
+                    .map(AuctionListing::price)
+                    .filter(price -> price > cheapest.price())
+                    .sorted()
+                    .toList();
+            if (higherPrices.isEmpty()) return;
+            double medianComparable = percentile(higherPrices, 0.50);
+            double topComparable = higherPrices.get(higherPrices.size() - 1);
+            double realisticResale = Math.min(topComparable, Math.max(medianComparable, cheapest.price() * 1.18));
+            double estimatedProfit = realisticResale * (1.0 - TAX_RATE) - cheapest.price();
+            boolean isRealFlip = estimatedProfit >= minimumAuctionProfit
+                    && estimatedProfit / cheapest.price() >= MIN_PROFIT_RATIO
+                    && cheapest.price() < realisticResale * 0.95;
+            if (isRealFlip) {
                 flips.add(new AuctionFlip(cheapest.itemName(), cheapest.rarity(), cheapest.uuid(), cheapest.price(), estimatedProfit));
             }
         });
         flips.sort(Comparator.comparingDouble(AuctionFlip::estimatedProfit).reversed());
         return new AuctionResponse(flips, totalPages);
+    }
+
+    private static double percentile(List<Double> values, double ratio) {
+        if (values.isEmpty()) return 0;
+        if (values.size() == 1) return values.get(0);
+        int index = (int) Math.floor((values.size() - 1) * ratio);
+        return values.get(Math.min(index, values.size() - 1));
     }
 
     private static String itemSignature(String itemName, String lore, String itemBytes) {
