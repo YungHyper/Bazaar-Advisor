@@ -1,9 +1,18 @@
-# Example Mod
+# Bazaar Advisor
 
-## Setup
+Client-side Fabric mod for Minecraft 26.1, developed by HypedSophie.
 
-For setup instructions, please see the [Fabric Documentation page](https://docs.fabricmc.net/develop/getting-started/creating-a-project#setting-up) related to the IDE that you are using.
+Current version: `0.1.9`
 
-## License
+## Build
 
-This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
+Install Java 25, then run `gradle clean build` from this project folder. The mod JAR is written to `build/libs/`.
+
+## Auction commands
+
+- `/bazad on` enables BIN flip suggestions.
+- `/bazad off` disables suggestions.
+- `/bazad minprofit <coins>` sets the minimum estimated net profit.
+- `/bazad interval <seconds>` changes scan interval.
+
+Flip estimates compare the cheapest fresh BIN against active matching listings after tax. They are estimates, not guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
