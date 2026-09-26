@@ -14,11 +14,11 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 
 - `/bazad on` enables BIN flip suggestions.
 - `/bazad off` disables suggestions.
-- `/bazad minprofit <coins>` sets the minimum estimated net profit.
+- `/bazad minprofit <coins>` sets the minimum estimated net profit. Default: `500000`.
 - `/bazad interval <seconds>` changes scan interval.
 
 Flip suggestions are estimates from active matching BIN listings after tax, not guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 
 ## Development
 
-Source and Gradle project files are kept here for maintainers. Players should use the prebuilt JAR attached to each GitHub Release.
+Source and Gradle project files are kept here for maintainers. Players should use the prebuilt JAR attached to each GitHub Release. Pushing a `v*` tag automatically builds and attaches the mod JAR to a GitHub Release.

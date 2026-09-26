@@ -68,10 +68,10 @@ public final class ExampleModClient implements ClientModInitializer {
     private static int auctionScanIntervalTicks = 100;
     private static int auctionPage;
     private static int auctionTotalPages = 1;
-    private static long minimumAuctionProfit = 250_000L;
-    private static final long MAX_LISTING_AGE_MS = 180_000L;
-    private static final int MIN_MATCHING_BINS = 4;
-    private static final double MIN_PROFIT_RATIO = 0.12;
+    private static long minimumAuctionProfit = 500_000L;
+    private static final long MAX_LISTING_AGE_MS = 600_000L;
+    private static final int MIN_MATCHING_BINS = 3;
+    private static final double MIN_PROFIT_RATIO = 0.10;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
