@@ -19,7 +19,7 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 - `/bazad status` shows the active threshold and last scanned page's result count.
 - `/bazad scan` scans the current auction page immediately.
 
-Flip suggestions are estimates from active matching BIN listings after tax, not guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
+Flip suggestions compare normalized item name and lore, rather than unique serialized item bytes, so matching listings can form a real comparison group. Estimates use active BIN prices after tax and are not guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 
 ## Development
 

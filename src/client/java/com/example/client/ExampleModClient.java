@@ -304,7 +304,7 @@ public final class ExampleModClient implements ClientModInitializer {
             double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
             long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
             if (!uuid.isEmpty() && price > 0 && startTime > 0) {
-                String signature = itemSignature(itemName, lore, itemBytes);
+                String signature = itemSignature(itemName, lore);
                 groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime));
             }
         });
@@ -334,9 +334,9 @@ public final class ExampleModClient implements ClientModInitializer {
         return new AuctionResponse(flips, totalPages);
     }
 
-    private static String itemSignature(String itemName, String lore, String itemBytes) {
+    private static String itemSignature(String itemName, String lore) {
         String visibleData = (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
-        return (visibleData.isBlank() ? itemName.toLowerCase() : visibleData) + "|item-data:" + itemBytes.hashCode();
+        return visibleData.isBlank() ? itemName.toLowerCase() : visibleData;
     }
 
     private static String rarityFromLore(String lore) {
