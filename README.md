@@ -16,6 +16,8 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 - `/bazad off` disables suggestions.
 - `/bazad minprofit <coins>` sets the minimum estimated net profit. Default: `500000`.
 - `/bazad interval <seconds>` changes scan interval.
+- `/bazad status` shows the active threshold and last scanned page's result count.
+- `/bazad scan` scans the current auction page immediately.
 
 Flip suggestions are estimates from active matching BIN listings after tax, not guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 

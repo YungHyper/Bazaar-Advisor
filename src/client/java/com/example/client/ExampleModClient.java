@@ -72,6 +72,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final long MAX_LISTING_AGE_MS = 600_000L;
     private static final int MIN_MATCHING_BINS = 3;
     private static final double MIN_PROFIT_RATIO = 0.10;
+    private static int lastPageFlipCount;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
     @Override
@@ -100,6 +101,15 @@ public final class ExampleModClient implements ClientModInitializer {
                         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("off").executes(context -> {
                             auctionFlipsEnabled = false;
                             context.getSource().sendFeedback(Component.literal("Bazaar Advisor auction flips: OFF").withStyle(ChatFormatting.YELLOW));
+                            return 1;
+                        }))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("status").executes(context -> {
+                            context.getSource().sendFeedback(Component.literal("Flips " + (auctionFlipsEnabled ? "ON" : "OFF") + " | min " + formatCoins((double) minimumAuctionProfit) + " | interval " + auctionScanIntervalTicks / 20 + "s | page " + (auctionPage + 1) + "/" + auctionTotalPages + " | candidates " + lastPageFlipCount).withStyle(ChatFormatting.AQUA));
+                            return 1;
+                        }))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("scan").executes(context -> {
+                            scanAuctions();
+                            context.getSource().sendFeedback(Component.literal("Scanning auction page " + (auctionPage + 1) + "/" + auctionTotalPages).withStyle(ChatFormatting.AQUA));
                             return 1;
                         }))
                         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("count").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("amount", IntegerArgumentType.integer(1, 10)).executes(context -> {
@@ -230,6 +240,7 @@ public final class ExampleModClient implements ClientModInitializer {
                 .thenApply(HttpResponse::body)
                 .thenApply(body -> parseAuctionResponse(body))
                 .thenAccept(flips -> Minecraft.getInstance().execute(() -> {
+                    lastPageFlipCount = flips.flips().size();
                     List<AuctionFlip> freshFlips = flips.flips().stream()
                             .filter(flip -> notifiedAuctionIds.add(flip.uuid()))
                             .limit(auctionFlipCount)
