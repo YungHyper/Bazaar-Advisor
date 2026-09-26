@@ -21,6 +21,11 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -29,10 +34,12 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import org.lwjgl.glfw.GLFW;
 
 import java.net.URI;
+import java.io.ByteArrayInputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -320,7 +327,8 @@ public final class ExampleModClient implements ClientModInitializer {
                 double price = sale.has("price") ? sale.get("price").getAsDouble() : 0;
                 long age = now - timestamp;
                 if (itemBytes.isEmpty() || price <= 0 || timestamp <= 0 || age < 0 || age > MAX_SALE_AGE_MS) return;
-                realizedSales.computeIfAbsent(itemBytes, key -> new ArrayList<>()).add(price);
+                String itemSignature = normalizedItemSignature(itemBytes);
+                if (!itemSignature.isEmpty()) realizedSales.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(price);
             });
         }
 
@@ -340,8 +348,8 @@ public final class ExampleModClient implements ClientModInitializer {
                 double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
                 long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
                 if (!uuid.isEmpty() && price > 0 && startTime > 0) {
-                    String signature = itemSignature(itemName, lore);
-                    groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime, itemBytes));
+                    String itemSignature = normalizedItemSignature(itemBytes);
+                    if (!itemSignature.isEmpty()) groups.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime, itemSignature));
                 }
             });
         }
@@ -351,7 +359,7 @@ public final class ExampleModClient implements ClientModInitializer {
             for (AuctionListing listing : listings) {
                 long listingAge = now - listing.startTime();
                 if (listingAge < 0 || listingAge > MAX_LISTING_AGE_MS) continue;
-                List<Double> salePrices = realizedSales.get(listing.itemBytes());
+                List<Double> salePrices = realizedSales.get(listing.itemSignature());
                 if (salePrices == null || salePrices.isEmpty()) continue;
                 double realizedSalePrice = median(salePrices);
                 double estimatedProfit = realizedSalePrice * (1.0 - TAX_RATE) - listing.price();
@@ -370,9 +378,44 @@ public final class ExampleModClient implements ClientModInitializer {
         return sorted.size() % 2 == 0 ? (sorted.get(middle - 1) + sorted.get(middle)) / 2.0 : sorted.get(middle);
     }
 
-    private static String itemSignature(String itemName, String lore) {
-        String visibleData = (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
-        return visibleData.isBlank() ? itemName.toLowerCase() : visibleData;
+    private static String normalizedItemSignature(String encodedItem) {
+        try {
+            byte[] compressed = Base64.getMimeDecoder().decode(encodedItem);
+            CompoundTag item = NbtIo.readCompressed(new ByteArrayInputStream(compressed), NbtAccounter.create(8_000_000L));
+            stripInstanceFields(item);
+            return canonicalNbt(item);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static void stripInstanceFields(Tag tag) {
+        if (tag instanceof CompoundTag compound) {
+            for (String key : new ArrayList<>(compound.keySet())) {
+                String normalizedKey = key.toLowerCase();
+                if (normalizedKey.equals("uuid") || normalizedKey.equals("uid") || normalizedKey.equals("timestamp")
+                        || normalizedKey.equals("auction_id") || normalizedKey.equals("auction_uuid")) {
+                    compound.remove(key);
+                } else {
+                    stripInstanceFields(compound.get(key));
+                }
+            }
+        } else if (tag instanceof ListTag list) {
+            for (Tag child : list) stripInstanceFields(child);
+        }
+    }
+
+    private static String canonicalNbt(Tag tag) {
+        if (tag instanceof CompoundTag compound) {
+            return compound.keySet().stream().sorted()
+                    .map(key -> key + ":" + canonicalNbt(compound.get(key)))
+                    .collect(java.util.stream.Collectors.joining(",", "{", "}"));
+        }
+        if (tag instanceof ListTag list) {
+            return list.stream().map(ExampleModClient::canonicalNbt)
+                    .collect(java.util.stream.Collectors.joining(",", "[", "]"));
+        }
+        return tag.toString();
     }
 
     private static String rarityFromLore(String lore) {
@@ -501,7 +544,7 @@ public final class ExampleModClient implements ClientModInitializer {
 
     private record Trade(String product, double buyPrice, long volume, double profit, double fastScore, double roi, boolean suspicious, boolean book) {}
 
-    private record AuctionListing(String uuid, double price, String itemName, String rarity, long startTime, String itemBytes) {}
+    private record AuctionListing(String uuid, double price, String itemName, String rarity, long startTime, String itemSignature) {}
 
     private record AuctionFlip(String itemName, String rarity, String uuid, double buyPrice, double realizedSalePrice, double estimatedProfit) {}
 
