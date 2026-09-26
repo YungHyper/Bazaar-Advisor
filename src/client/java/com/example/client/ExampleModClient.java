@@ -69,6 +69,8 @@ public final class ExampleModClient implements ClientModInitializer {
     private static int auctionPage;
     private static int auctionTotalPages = 1;
     private static long minimumAuctionProfit = 250_000L;
+    private static final long MAX_LISTING_AGE_MS = 180_000L;
+    private static final int MIN_MATCHING_BINS = 4;
     private static final double MIN_PROFIT_RATIO = 0.12;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
@@ -289,16 +291,19 @@ public final class ExampleModClient implements ClientModInitializer {
             String itemBytes = auction.has("item_bytes") ? auction.get("item_bytes").getAsString() : "";
             String uuid = auction.has("uuid") ? auction.get("uuid").getAsString() : "";
             double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
-            if (!uuid.isEmpty() && price > 0) {
+            long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
+            if (!uuid.isEmpty() && price > 0 && startTime > 0) {
                 String signature = itemSignature(itemName, lore, itemBytes);
-                groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore)));
+                groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime));
             }
         });
         List<AuctionFlip> flips = new ArrayList<>();
         groups.forEach((itemName, listings) -> {
             listings.sort(Comparator.comparingDouble(AuctionListing::price));
-            if (listings.size() < 3) return;
+                if (listings.size() < MIN_MATCHING_BINS) return;
             AuctionListing cheapest = listings.get(0);
+                long listingAge = System.currentTimeMillis() - cheapest.startTime();
+                if (listingAge < 0 || listingAge > MAX_LISTING_AGE_MS) return;
             List<Double> higherPrices = listings.stream()
                     .skip(1)
                     .map(AuctionListing::price)
@@ -306,13 +311,10 @@ public final class ExampleModClient implements ClientModInitializer {
                     .sorted()
                     .toList();
             if (higherPrices.isEmpty()) return;
-            double medianComparable = percentile(higherPrices, 0.50);
-            double topComparable = higherPrices.get(higherPrices.size() - 1);
-            double realisticResale = Math.min(topComparable, Math.max(medianComparable, cheapest.price() * 1.18));
-            double estimatedProfit = realisticResale * (1.0 - TAX_RATE) - cheapest.price();
+                double nextCheapestBin = higherPrices.get(0);
+                double estimatedProfit = nextCheapestBin * (1.0 - TAX_RATE) - cheapest.price();
             boolean isRealFlip = estimatedProfit >= minimumAuctionProfit
-                    && estimatedProfit / cheapest.price() >= MIN_PROFIT_RATIO
-                    && cheapest.price() < realisticResale * 0.95;
+                    && estimatedProfit / cheapest.price() >= MIN_PROFIT_RATIO;
             if (isRealFlip) {
                 flips.add(new AuctionFlip(cheapest.itemName(), cheapest.rarity(), cheapest.uuid(), cheapest.price(), estimatedProfit));
             }
@@ -321,16 +323,9 @@ public final class ExampleModClient implements ClientModInitializer {
         return new AuctionResponse(flips, totalPages);
     }
 
-    private static double percentile(List<Double> values, double ratio) {
-        if (values.isEmpty()) return 0;
-        if (values.size() == 1) return values.get(0);
-        int index = (int) Math.floor((values.size() - 1) * ratio);
-        return values.get(Math.min(index, values.size() - 1));
-    }
-
     private static String itemSignature(String itemName, String lore, String itemBytes) {
         String visibleData = (itemName + "|" + lore).replaceAll("§.", "").replaceAll("\\s+", " ").trim().toLowerCase();
-        return visibleData.isBlank() ? itemName.toLowerCase() + "|nbt:" + itemBytes.hashCode() : visibleData;
+        return (visibleData.isBlank() ? itemName.toLowerCase() : visibleData) + "|item-data:" + itemBytes.hashCode();
     }
 
     private static String rarityFromLore(String lore) {
@@ -459,7 +454,7 @@ public final class ExampleModClient implements ClientModInitializer {
 
     private record Trade(String product, double buyPrice, long volume, double profit, double fastScore, double roi, boolean suspicious, boolean book) {}
 
-    private record AuctionListing(String uuid, double price, String itemName, String rarity) {}
+    private record AuctionListing(String uuid, double price, String itemName, String rarity, long startTime) {}
 
     private record AuctionFlip(String itemName, String rarity, String uuid, double buyPrice, double estimatedProfit) {}
 
