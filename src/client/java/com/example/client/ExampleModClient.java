@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 public final class ExampleModClient implements ClientModInitializer {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -72,6 +73,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final long MAX_LISTING_AGE_MS = 600_000L;
     private static final int MIN_MATCHING_BINS = 3;
     private static final double MIN_PROFIT_RATIO = 0.10;
+    private static final int AUCTION_PAGES_PER_SCAN = 3;
     private static int lastPageFlipCount;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
@@ -235,10 +237,19 @@ public final class ExampleModClient implements ClientModInitializer {
     private static void scanAuctions() {
         if (!auctionFlipsEnabled || auctionScanInProgress) return;
         auctionScanInProgress = true;
-        HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.hypixel.net/v2/skyblock/auctions?page=" + auctionPage)).GET().build();
-        HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenApply(body -> parseAuctionResponse(body))
+        int knownPages = Math.max(1, auctionTotalPages);
+        int batchSize = Math.min(AUCTION_PAGES_PER_SCAN, knownPages);
+        List<Integer> requestedPages = new ArrayList<>();
+        List<CompletableFuture<HttpResponse<String>>> requests = new ArrayList<>();
+        for (int offset = 0; offset < batchSize; offset++) {
+            int page = (auctionPage + offset) % knownPages;
+            requestedPages.add(page);
+            HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.hypixel.net/v2/skyblock/auctions?page=" + page)).GET().build();
+            requests.add(HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString()));
+        }
+        CompletableFuture.allOf(requests.toArray(CompletableFuture[]::new))
+                .thenApply(ignored -> requests.stream().map(CompletableFuture::join).map(HttpResponse::body).toList())
+                .thenApply(ExampleModClient::parseAuctionResponses)
                 .thenAccept(flips -> Minecraft.getInstance().execute(() -> {
                     lastPageFlipCount = flips.flips().size();
                     List<AuctionFlip> freshFlips = flips.flips().stream()
@@ -251,7 +262,8 @@ public final class ExampleModClient implements ClientModInitializer {
                     }
                         if (notifiedAuctionIds.size() > 500) notifiedAuctionIds.clear();
                         auctionTotalPages = flips.totalPages();
-                        auctionPage = (auctionPage + 1) % Math.max(1, auctionTotalPages);
+                    auctionPage = (auctionPage + requestedPages.size()) % Math.max(1, flips.totalPages());
+                    auctionTotalPages = flips.totalPages();
                     auctionScanInProgress = false;
                 }))
                 .exceptionally(error -> {
@@ -289,25 +301,27 @@ public final class ExampleModClient implements ClientModInitializer {
         };
     }
 
-    private static AuctionResponse parseAuctionResponse(String body) {
+    private static AuctionResponse parseAuctionResponses(List<String> bodies) {
         Map<String, List<AuctionListing>> groups = new HashMap<>();
-        JsonObject root = JsonParser.parseString(body).getAsJsonObject();
-        int totalPages = root.has("totalPages") ? root.get("totalPages").getAsInt() : 1;
-        if (!root.has("auctions")) return new AuctionResponse(List.of(), totalPages);
-        root.getAsJsonArray("auctions").forEach(element -> {
-            JsonObject auction = element.getAsJsonObject();
-            if (!auction.has("bin") || !auction.get("bin").getAsBoolean()) return;
-            String itemName = auction.has("item_name") ? auction.get("item_name").getAsString() : "Unknown item";
-            String lore = auction.has("item_lore") ? auction.get("item_lore").getAsString() : "";
-            String itemBytes = auction.has("item_bytes") ? auction.get("item_bytes").getAsString() : "";
-            String uuid = auction.has("uuid") ? auction.get("uuid").getAsString() : "";
-            double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
-            long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
-            if (!uuid.isEmpty() && price > 0 && startTime > 0) {
-                String signature = itemSignature(itemName, lore);
-                groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime));
-            }
-        });
+        int totalPages = 1;
+        for (String body : bodies) {
+            JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            totalPages = Math.max(totalPages, root.has("totalPages") ? root.get("totalPages").getAsInt() : 1);
+            if (!root.has("auctions")) continue;
+            root.getAsJsonArray("auctions").forEach(element -> {
+                JsonObject auction = element.getAsJsonObject();
+                if (!auction.has("bin") || !auction.get("bin").getAsBoolean()) return;
+                String itemName = auction.has("item_name") ? auction.get("item_name").getAsString() : "Unknown item";
+                String lore = auction.has("item_lore") ? auction.get("item_lore").getAsString() : "";
+                String uuid = auction.has("uuid") ? auction.get("uuid").getAsString() : "";
+                double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
+                long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
+                if (!uuid.isEmpty() && price > 0 && startTime > 0) {
+                    String signature = itemSignature(itemName, lore);
+                    groups.computeIfAbsent(signature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime));
+                }
+            });
+        }
         List<AuctionFlip> flips = new ArrayList<>();
         groups.forEach((itemName, listings) -> {
             listings.sort(Comparator.comparingDouble(AuctionListing::price));
