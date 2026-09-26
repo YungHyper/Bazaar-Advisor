@@ -12,14 +12,8 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 
 ## In-game auction commands
 
-- `/bazad on` enables BIN flip suggestions.
-- `/bazad off` disables suggestions.
-- `/bazad minprofit <coins>` sets the minimum estimated net profit. Default: `500000`.
-- `/bazad interval <seconds>` changes scan interval.
-- `/bazad status` shows the active threshold and last scanned page's result count.
-- `/bazad scan` scans the current auction page immediately.
 
-Flip suggestions compare normalized item name and lore across three auction pages per scan, use the actual next-cheapest matching BIN after tax, and are estimates rather than guaranteed sale prices. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
+Flip suggestions require a recent completed BIN sale for the identical serialized item, then estimate net from that realized sale price after tax. This is intentionally conservative and can show no flips when there is no recent matching sale. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 
 ## Development
 
