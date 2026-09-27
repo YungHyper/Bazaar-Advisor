@@ -80,7 +80,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final long MAX_LISTING_AGE_MS = 600_000L;
     private static final long MAX_SALE_AGE_MS = 120_000L;
     private static final double MIN_PROFIT_RATIO = 0.10;
-    private static final int AUCTION_PAGES_PER_SCAN = 3;
+    private static final int AUCTION_PAGES_PER_SCAN = 5;
     private static int lastPageFlipCount;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
 
