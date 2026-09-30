@@ -90,9 +90,12 @@ public final class ExampleModClient implements ClientModInitializer {
     private static long minimumAuctionProfit = 500_000L;
     private static final long MAX_LISTING_AGE_MS = 600_000L;
     private static final long MAX_SALE_AGE_MS = 120_000L;
+    private static final double RESALE_BUFFER = 0.97;
     private static final double MIN_PROFIT_RATIO = 0.10;
     private static final int AUCTION_PAGES_PER_SCAN = 5;
     private static int lastPageFlipCount;
+    private static AuctionFlip countdownFlip;
+    private static int countdownTicks;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
     private static final Map<String, AuctionFlip> pendingFlipRatings = new HashMap<>();
 
@@ -114,6 +117,8 @@ public final class ExampleModClient implements ClientModInitializer {
                 auctionScanTicks = 0;
                 scanAuctions();
             }
+            updateFlipCountdown(client);
+            updateFlipCountdown(client);
         });
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
             LiteralArgumentBuilder.<FabricClientCommandSource>literal("bazad")
@@ -304,6 +309,8 @@ public final class ExampleModClient implements ClientModInitializer {
                     if (!freshFlips.isEmpty()) {
                         sendChat(Component.literal("[Bazaar Advisor] Fresh BINs with recent sale proof:").withStyle(ChatFormatting.GOLD));
                         freshFlips.forEach(ExampleModClient::sendFlipMessage);
+                        countdownFlip = freshFlips.get(0);
+                        countdownTicks = 20;
                     }
                         if (notifiedAuctionIds.size() > 500) notifiedAuctionIds.clear();
                         auctionTotalPages = flips.totalPages();
@@ -322,6 +329,29 @@ public final class ExampleModClient implements ClientModInitializer {
         Minecraft.getInstance().gui.getChat().addClientSystemMessage(message);
     }
 
+    private static void updateFlipCountdown(Minecraft client) {
+        if (countdownFlip == null || client.player == null || --countdownTicks > 0) return;
+        countdownTicks = 20;
+        long remaining = countdownFlip.endTime() - System.currentTimeMillis();
+        if (remaining <= 0) {
+            countdownFlip = null;
+            client.gui.setOverlayMessage(Component.literal("Suggested BIN expired").withStyle(ChatFormatting.RED), false);
+            return;
+        }
+        client.gui.setOverlayMessage(Component.literal(countdownFlip.itemName() + " BIN expires in " + formatDuration(remaining))
+                .withStyle(ChatFormatting.GOLD), false);
+    }
+
+    private static String formatDuration(long millis) {
+        long seconds = Math.max(0, millis / 1000);
+        long days = seconds / 86400;
+        long hours = (seconds % 86400) / 3600;
+        long minutes = (seconds % 3600) / 60;
+        long remainder = seconds % 60;
+        if (days > 0) return "%dd %02d:%02d:%02d".formatted(days, hours, minutes, remainder);
+        return "%02d:%02d:%02d".formatted(hours, minutes, remainder);
+    }
+
     private static void sendFlipMessage(AuctionFlip flip) {
         String feedbackId = UUID.randomUUID().toString().substring(0, 8);
         pendingFlipRatings.put(feedbackId, flip);
@@ -332,7 +362,8 @@ public final class ExampleModClient implements ClientModInitializer {
                         .withColor(ChatFormatting.YELLOW)
                         .withClickEvent(new ClickEvent.RunCommand("/viewauction " + flip.uuid()))
                         .withHoverEvent(new HoverEvent.ShowText(Component.literal("Recent sale of this exact item: " + formatCoins(flip.realizedSalePrice()) + " coins").withStyle(ChatFormatting.WHITE)))))
-                .append(Component.literal("EST +" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN))
+                .append(Component.literal("NET +" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN))
+                .append(Component.literal("  " + formatDuration(flip.endTime() - System.currentTimeMillis()) + " left").withStyle(ChatFormatting.YELLOW))
                 .append(Component.literal("  [BIN]").withStyle(ChatFormatting.GOLD));
         sendChat(message);
     }
@@ -361,6 +392,8 @@ public final class ExampleModClient implements ClientModInitializer {
         event.addProperty("buyPrice", flip.buyPrice());
         event.addProperty("realizedSalePrice", flip.realizedSalePrice());
         event.addProperty("estimatedProfit", flip.estimatedProfit());
+        event.addProperty("expiresAt", flip.endTime());
+        event.addProperty("recentSaleCount", flip.recentSaleCount());
         event.addProperty("auctionUuid", flip.uuid());
         appendFeedback(event);
     }
@@ -375,6 +408,8 @@ public final class ExampleModClient implements ClientModInitializer {
         event.addProperty("buyPrice", flip.buyPrice());
         event.addProperty("realizedSalePrice", flip.realizedSalePrice());
         event.addProperty("estimatedProfit", flip.estimatedProfit());
+        event.addProperty("expiresAt", flip.endTime());
+        event.addProperty("recentSaleCount", flip.recentSaleCount());
         appendFeedback(event);
     }
 
@@ -539,7 +574,7 @@ public final class ExampleModClient implements ClientModInitializer {
     }
 
     private static AuctionResponse parseAuctionResponses(List<String> bodies, String endedBody) {
-        Map<String, List<Double>> realizedSales = new HashMap<>();
+        Map<String, List<SaleRecord>> realizedSales = new HashMap<>();
         long now = System.currentTimeMillis();
         JsonObject endedRoot = JsonParser.parseString(endedBody).getAsJsonObject();
         if (endedRoot.has("auctions")) {
@@ -552,7 +587,7 @@ public final class ExampleModClient implements ClientModInitializer {
                 long age = now - timestamp;
                 if (itemBytes.isEmpty() || price <= 0 || timestamp <= 0 || age < 0 || age > MAX_SALE_AGE_MS) return;
                 String itemSignature = normalizedItemSignature(itemBytes);
-                if (!itemSignature.isEmpty()) realizedSales.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(price);
+                if (!itemSignature.isEmpty()) realizedSales.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(new SaleRecord(price, timestamp));
             });
         }
 
@@ -571,9 +606,10 @@ public final class ExampleModClient implements ClientModInitializer {
                 String uuid = auction.has("uuid") ? auction.get("uuid").getAsString() : "";
                 double price = auction.has("starting_bid") ? auction.get("starting_bid").getAsDouble() : 0;
                 long startTime = auction.has("start") ? auction.get("start").getAsLong() : 0;
-                if (!uuid.isEmpty() && price > 0 && startTime > 0) {
+                long endTime = auction.has("end") ? auction.get("end").getAsLong() : 0;
+                if (!uuid.isEmpty() && price > 0 && startTime > 0 && endTime > now) {
                     String itemSignature = normalizedItemSignature(itemBytes);
-                    if (!itemSignature.isEmpty()) groups.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime, itemSignature));
+                    if (!itemSignature.isEmpty()) groups.computeIfAbsent(itemSignature, key -> new ArrayList<>()).add(new AuctionListing(uuid, price, itemName, rarityFromLore(lore), startTime, endTime, itemSignature));
                 }
             });
         }
@@ -583,16 +619,17 @@ public final class ExampleModClient implements ClientModInitializer {
             for (AuctionListing listing : listings) {
                 long listingAge = now - listing.startTime();
                 if (listingAge < 0 || listingAge > MAX_LISTING_AGE_MS) continue;
-                List<Double> salePrices = realizedSales.get(listing.itemSignature());
-                if (salePrices == null || salePrices.isEmpty()) continue;
-                double realizedSalePrice = median(salePrices);
-                double estimatedProfit = realizedSalePrice * (1.0 - TAX_RATE) - listing.price();
+                List<SaleRecord> sales = realizedSales.get(listing.itemSignature());
+                if (sales == null || sales.isEmpty()) continue;
+                double realizedSalePrice = median(sales.stream().map(SaleRecord::price).toList());
+                double estimatedProfit = realizedSalePrice * RESALE_BUFFER * (1.0 - TAX_RATE) - listing.price();
                 if (estimatedProfit >= minimumAuctionProfit && estimatedProfit / listing.price() >= MIN_PROFIT_RATIO) {
-                    flips.add(new AuctionFlip(listing.itemName(), listing.rarity(), listing.uuid(), listing.price(), realizedSalePrice, estimatedProfit));
+                    flips.add(new AuctionFlip(listing.itemName(), listing.rarity(), listing.uuid(), listing.price(), realizedSalePrice, sales.size(), estimatedProfit, listing.endTime()));
                 }
             }
         });
-        flips.sort(Comparator.comparingDouble(AuctionFlip::estimatedProfit).reversed());
+        flips.sort(Comparator.comparingDouble(AuctionFlip::estimatedProfit).reversed()
+                .thenComparing(Comparator.comparingInt(AuctionFlip::recentSaleCount).reversed()));
         return new AuctionResponse(flips, totalPages);
     }
 
@@ -772,9 +809,11 @@ public final class ExampleModClient implements ClientModInitializer {
 
     private record Trade(String product, double buyPrice, long volume, double profit, double fastScore, double roi, boolean suspicious, boolean book) {}
 
-    private record AuctionListing(String uuid, double price, String itemName, String rarity, long startTime, String itemSignature) {}
+    private record SaleRecord(double price, long timestamp) {}
 
-    private record AuctionFlip(String itemName, String rarity, String uuid, double buyPrice, double realizedSalePrice, double estimatedProfit) {}
+    private record AuctionListing(String uuid, double price, String itemName, String rarity, long startTime, long endTime, String itemSignature) {}
+
+    private record AuctionFlip(String itemName, String rarity, String uuid, double buyPrice, double realizedSalePrice, int recentSaleCount, double estimatedProfit, long endTime) {}
 
     private record AuctionResponse(List<AuctionFlip> flips, int totalPages) {}
 }
