@@ -28,6 +28,7 @@ import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import static com.mojang.brigadier.builder.LiteralArgumentBuilder.literal;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -35,6 +36,10 @@ import org.lwjgl.glfw.GLFW;
 
 import java.net.URI;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -47,6 +52,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public final class ExampleModClient implements ClientModInitializer {
@@ -84,6 +90,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final int AUCTION_PAGES_PER_SCAN = 5;
     private static int lastPageFlipCount;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
+    private static final Map<String, AuctionFlip> pendingFlipRatings = new HashMap<>();
 
     @Override
     public void onInitializeClient() {
@@ -139,6 +146,18 @@ public final class ExampleModClient implements ClientModInitializer {
                             if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("rate").then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.word()).then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("rating", IntegerArgumentType.integer(1, 5)).executes(context -> {
+                            String id = StringArgumentType.getString(context, "id");
+                            int rating = IntegerArgumentType.getInteger(context, "rating");
+                            AuctionFlip flip = pendingFlipRatings.remove(id);
+                            if (flip == null) {
+                                context.getSource().sendError(Component.literal("Unknown or already-rated flip ID: " + id));
+                                return 0;
+                            }
+                            logFlipRating(id, flip, rating);
+                            context.getSource().sendFeedback(Component.literal("Saved rating " + rating + "/5 for flip " + id + " locally.").withStyle(ChatFormatting.GREEN));
+                            return 1;
+                        }))))
         ));
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
             if (!(screen instanceof AbstractContainerScreen<?>) || !isBazaarScreen(screen)) return;
@@ -292,7 +311,10 @@ public final class ExampleModClient implements ClientModInitializer {
     }
 
     private static void sendFlipMessage(AuctionFlip flip) {
-        Component message = Component.literal("  " + flip.itemName() + "  ")
+        String feedbackId = UUID.randomUUID().toString().substring(0, 8);
+        pendingFlipRatings.put(feedbackId, flip);
+        logFlipSuggestion(feedbackId, flip);
+        Component message = Component.literal("  #" + feedbackId + " " + flip.itemName() + "  ")
             .withStyle(rarityColor(flip.rarity()))
                 .append(Component.literal("BUY " + formatCoins(flip.buyPrice()) + "  ").withStyle(style -> style
                         .withColor(ChatFormatting.YELLOW)
@@ -301,6 +323,47 @@ public final class ExampleModClient implements ClientModInitializer {
                 .append(Component.literal("EST +" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN))
                 .append(Component.literal("  [BIN]").withStyle(ChatFormatting.GOLD));
         sendChat(message);
+    }
+
+    private static Path feedbackLogPath() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("config/bazaar-advisor/flip-feedback.jsonl");
+    }
+
+    private static void appendFeedback(JsonObject event) {
+        try {
+            Path path = feedbackLogPath();
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, event + System.lineSeparator(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException exception) {
+            sendChat(Component.literal("[Bazaar Advisor] Could not write local feedback log.").withStyle(ChatFormatting.RED));
+        }
+    }
+
+    private static void logFlipSuggestion(String id, AuctionFlip flip) {
+        JsonObject event = new JsonObject();
+        event.addProperty("event", "suggestion");
+        event.addProperty("id", id);
+        event.addProperty("time", System.currentTimeMillis());
+        event.addProperty("item", flip.itemName());
+        event.addProperty("rarity", flip.rarity());
+        event.addProperty("buyPrice", flip.buyPrice());
+        event.addProperty("realizedSalePrice", flip.realizedSalePrice());
+        event.addProperty("estimatedProfit", flip.estimatedProfit());
+        event.addProperty("auctionUuid", flip.uuid());
+        appendFeedback(event);
+    }
+
+    private static void logFlipRating(String id, AuctionFlip flip, int rating) {
+        JsonObject event = new JsonObject();
+        event.addProperty("event", "rating");
+        event.addProperty("id", id);
+        event.addProperty("time", System.currentTimeMillis());
+        event.addProperty("item", flip.itemName());
+        event.addProperty("rating", rating);
+        event.addProperty("buyPrice", flip.buyPrice());
+        event.addProperty("realizedSalePrice", flip.realizedSalePrice());
+        event.addProperty("estimatedProfit", flip.estimatedProfit());
+        appendFeedback(event);
     }
 
     private static ChatFormatting rarityColor(String rarity) {

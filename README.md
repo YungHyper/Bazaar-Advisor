@@ -12,6 +12,9 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 
 ## In-game auction commands
 
+- `/bazad rate <id> <1-5>` rates a flip suggestion in the feedback test build.
+- Each suggestion is logged locally to `.minecraft/config/bazaar-advisor/flip-feedback.jsonl`; the log is not uploaded or committed.
+
 
 Flip suggestions require a recent completed BIN sale for the same normalized item NBT. Per-instance IDs/timestamps and modifier-list ordering are normalized; enchantments, stars, hot-potato upgrades, reforge, gemstones, skins, pet items, and other item values remain in the comparison. The scanner checks five auction pages every five seconds and uses realized sale prices after tax. This is intentionally conservative and can show no flips when there is no recent matching sale. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 
