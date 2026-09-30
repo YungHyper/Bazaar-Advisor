@@ -13,7 +13,7 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 ## In-game auction commands
 
 
-Flip suggestions require a recent completed BIN sale for the same normalized item NBT. Per-instance UUID/timestamp fields are ignored, while value modifiers remain part of matching. The scanner checks five auction pages every five seconds and uses realized sale prices after tax. This is intentionally conservative and can show no flips when there is no recent matching sale. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
+Flip suggestions require a recent completed BIN sale for the same normalized item NBT. Per-instance IDs/timestamps and modifier-list ordering are normalized; enchantments, stars, hot-potato upgrades, reforge, gemstones, skins, pet items, and other item values remain in the comparison. The scanner checks five auction pages every five seconds and uses realized sale prices after tax. This is intentionally conservative and can show no flips when there is no recent matching sale. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
 
 ## Development
 

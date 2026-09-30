@@ -43,6 +43,7 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
@@ -392,9 +393,13 @@ public final class ExampleModClient implements ClientModInitializer {
     private static void stripInstanceFields(Tag tag) {
         if (tag instanceof CompoundTag compound) {
             for (String key : new ArrayList<>(compound.keySet())) {
-                String normalizedKey = key.toLowerCase();
+                String normalizedKey = key.toLowerCase(Locale.ROOT);
                 if (normalizedKey.equals("uuid") || normalizedKey.equals("uid") || normalizedKey.equals("timestamp")
-                        || normalizedKey.equals("auction_id") || normalizedKey.equals("auction_uuid")) {
+                        || normalizedKey.equals("auction_id") || normalizedKey.equals("auction_uuid")
+                        || normalizedKey.equals("seller_uuid") || normalizedKey.equals("owner_uuid")
+                        || normalizedKey.equals("profile_id") || normalizedKey.equals("instance_id")
+                        || normalizedKey.equals("creation_time") || normalizedKey.equals("created_at")
+                        || normalizedKey.equals("last_updated")) {
                     compound.remove(key);
                 } else {
                     stripInstanceFields(compound.get(key));
@@ -412,7 +417,7 @@ public final class ExampleModClient implements ClientModInitializer {
                     .collect(java.util.stream.Collectors.joining(",", "{", "}"));
         }
         if (tag instanceof ListTag list) {
-            return list.stream().map(ExampleModClient::canonicalNbt)
+            return list.stream().map(ExampleModClient::canonicalNbt).sorted()
                     .collect(java.util.stream.Collectors.joining(",", "[", "]"));
         }
         return tag.toString();
