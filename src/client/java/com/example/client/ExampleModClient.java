@@ -59,6 +59,8 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final HttpClient HTTP = HttpClient.newHttpClient();
     private static final String BAZAAR_URL = "https://api.hypixel.net/v2/skyblock/bazaar";
     private static final double TAX_RATE = 0.0125;
+        private static final KeyMapping.Category KEY_CATEGORY = KeyMapping.Category.register(
+            Identifier.fromNamespaceAndPath("bazaar_advisor", "main"));
     private static KeyMapping openKey;
     private static KeyMapping settingsKey;
     private static boolean advisorVisible;
@@ -97,10 +99,10 @@ public final class ExampleModClient implements ClientModInitializer {
     public void onInitializeClient() {
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.bazaar_advisor.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B,
-                KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bazaar_advisor", "main"))));
+            KEY_CATEGORY));
         settingsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.bazaar_advisor.settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_INSERT,
-            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bazaar_advisor", "main"))));
+            KEY_CATEGORY));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (settingsKey.consumeClick()) client.setScreen(new BazaarSettingsScreen());
             while (openKey.consumeClick() && client.screen != null && isBazaarScreen(client.screen)) {
