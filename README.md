@@ -21,3 +21,7 @@ Flip suggestions require a recent completed BIN sale for the same normalized ite
 ## Development
 
 Source and Gradle project files are kept here for maintainers. Players should use the prebuilt JAR attached to each GitHub Release. Pushing a `v*` tag automatically builds and attaches the mod JAR to a GitHub Release.
+
+## Flip feedback test branch
+
+On `test/flip-feedback`, each suggestion is logged to the local Minecraft config JSONL file. Double-click `open-feedback-dashboard.bat` to open the dashboard at `http://127.0.0.1:8766`. Rate flips and add comments in the browser; changes are saved to that same local file. The server binds to `127.0.0.1` only and nothing is uploaded.
