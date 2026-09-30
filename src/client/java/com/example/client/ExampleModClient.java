@@ -397,7 +397,7 @@ public final class ExampleModClient implements ClientModInitializer {
         @Override
         protected void init() {
             left = width / 2 - 115;
-            top = Math.max(32, height / 2 - 126);
+            top = Math.max(33, height / 2 - 105);
             flipsButton = Button.builder(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")), button -> {
                 auctionFlipsEnabled = !auctionFlipsEnabled;
                 button.setMessage(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")));
@@ -506,19 +506,18 @@ public final class ExampleModClient implements ClientModInitializer {
 
         @Override
         public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
-            super.extractRenderState(context, mouseX, mouseY, delta);
             int left = width / 2 - 130;
-            int top = Math.max(16, height / 2 - 140);
-            context.fill(left, top, left + 260, top + 235, 0xF0182233);
+            int top = Math.max(8, height / 2 - 130);
+            context.fill(left, top, left + 260, top + 260, 0xF0182233);
             context.fill(left, top, left + 260, top + 2, 0xFFA8E6C1);
-                context.fill(left + 12, top + 24, left + 248, top + 25, 0x553F6C58);
-                context.fill(left + 12, top + 99, left + 248, top + 100, 0x553F6C58);
-                context.fill(left + 12, top + 174, left + 248, top + 175, 0x553F6C58);
+            context.fill(left + 10, top, left + 12, top + 260, 0xFF76C9A2);
+            context.fill(left + 12, top + 26, left + 248, top + 27, 0x553F6C58);
+            context.fill(left + 12, top + 126, left + 248, top + 127, 0x553F6C58);
+            context.fill(left + 12, top + 201, left + 248, top + 202, 0x553F6C58);
+            super.extractRenderState(context, mouseX, mouseY, delta);
             var text = context.textRenderer();
             text.accept(net.minecraft.client.gui.TextAlignment.CENTER, width / 2, top + 8,
                     Component.literal("BAZAAR TRADING DESK").withStyle(ChatFormatting.AQUA));
-            text.accept(left + 14, top + 224,
-                    Component.literal("Left click: increase  |  Right click: decrease").withStyle(ChatFormatting.GRAY));
         }
 
         @Override
