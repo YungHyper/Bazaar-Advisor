@@ -60,6 +60,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static final String BAZAAR_URL = "https://api.hypixel.net/v2/skyblock/bazaar";
     private static final double TAX_RATE = 0.0125;
     private static KeyMapping openKey;
+    private static KeyMapping settingsKey;
     private static boolean advisorVisible;
     private static boolean editMode;
     private static int booksMode;
@@ -97,7 +98,11 @@ public final class ExampleModClient implements ClientModInitializer {
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.bazaar_advisor.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B,
                 KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bazaar_advisor", "main"))));
+        settingsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+            "key.bazaar_advisor.settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_INSERT,
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bazaar_advisor", "main"))));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            while (settingsKey.consumeClick()) client.setScreen(new BazaarSettingsScreen());
             while (openKey.consumeClick() && client.screen != null && isBazaarScreen(client.screen)) {
                 advisorVisible = !advisorVisible;
             }
@@ -109,6 +114,10 @@ public final class ExampleModClient implements ClientModInitializer {
         });
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
             LiteralArgumentBuilder.<FabricClientCommandSource>literal("bazad")
+                .executes(context -> {
+                    context.getSource().getClient().setScreen(new BazaarSettingsScreen());
+                    return 1;
+                })
                 .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("on").executes(context -> {
                             auctionFlipsEnabled = true;
                             context.getSource().sendFeedback(Component.literal("Bazaar Advisor auction flips: ON").withStyle(ChatFormatting.GREEN));
@@ -364,6 +373,84 @@ public final class ExampleModClient implements ClientModInitializer {
         event.addProperty("realizedSalePrice", flip.realizedSalePrice());
         event.addProperty("estimatedProfit", flip.estimatedProfit());
         appendFeedback(event);
+    }
+
+    private static final class BazaarSettingsScreen extends Screen {
+        private BazaarSettingsScreen() {
+            super(Component.literal("Bazaar Advisor Settings"));
+        }
+
+        @Override
+        protected void init() {
+            int left = width / 2 - 115;
+            int top = Math.max(32, height / 2 - 126);
+            addRenderableWidget(Button.builder(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")), button -> {
+                auctionFlipsEnabled = !auctionFlipsEnabled;
+                button.setMessage(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")));
+                if (auctionFlipsEnabled) scanAuctions();
+            }).bounds(left, top, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Messages per scan: " + auctionFlipCount), button -> {
+                auctionFlipCount = auctionFlipCount >= 10 ? 1 : auctionFlipCount + 1;
+                button.setMessage(Component.literal("Messages per scan: " + auctionFlipCount));
+            }).bounds(left, top + 25, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Scan interval: " + auctionScanIntervalTicks / 20 + "s"), button -> {
+                int[] intervals = {5, 10, 15, 30, 60};
+                int current = auctionScanIntervalTicks / 20;
+                int next = intervals[0];
+                for (int i = 0; i < intervals.length; i++) {
+                    if (intervals[i] == current) {
+                        next = intervals[(i + 1) % intervals.length];
+                        break;
+                    }
+                }
+                auctionScanIntervalTicks = next * 20;
+                button.setMessage(Component.literal("Scan interval: " + next + "s"));
+            }).bounds(left, top + 50, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)), button -> {
+                long[] floors = {100_000L, 250_000L, 500_000L, 1_000_000L, 2_000_000L, 5_000_000L};
+                int current = 0;
+                for (int i = 0; i < floors.length; i++) if (floors[i] == minimumAuctionProfit) current = i;
+                minimumAuctionProfit = floors[(current + 1) % floors.length];
+                button.setMessage(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)));
+            }).bounds(left, top + 75, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Books filter: " + booksLabel()), button -> {
+                booksMode = (booksMode + 1) % 3;
+                button.setMessage(Component.literal("Books filter: " + booksLabel()));
+            }).bounds(left, top + 100, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")), button -> {
+                hideSuspicious = !hideSuspicious;
+                button.setMessage(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")));
+            }).bounds(left, top + 125, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Bazaar sort: " + sortLabel()), button -> {
+                sortMode = (sortMode + 1) % 4;
+                button.setMessage(Component.literal("Bazaar sort: " + sortLabel()));
+            }).bounds(left, top + 150, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Visible Bazaar rows: " + visibleTradeRows), button -> {
+                visibleTradeRows = visibleTradeRows >= 8 ? 1 : visibleTradeRows + 1;
+                button.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
+            }).bounds(left, top + 175, 230, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
+                    .bounds(left, top + 205, 230, 20).build());
+        }
+
+        @Override
+        public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
+            super.extractRenderState(context, mouseX, mouseY, delta);
+            int left = width / 2 - 130;
+            int top = Math.max(16, height / 2 - 140);
+            context.fill(left, top, left + 260, top + 235, 0xF0182233);
+            context.fill(left, top, left + 260, top + 2, 0xFFA8E6C1);
+            var text = context.textRenderer();
+            text.accept(net.minecraft.client.gui.TextAlignment.CENTER, width / 2, top + 8,
+                    Component.literal("BAZAAR ADVISOR").withStyle(ChatFormatting.AQUA));
+            text.accept(left + 14, top + 224,
+                    Component.literal("Flip notes stay local · /bazad rate <id> <1-5>").withStyle(ChatFormatting.GRAY));
+        }
+
+        @Override
+        public boolean isPauseScreen() {
+            return false;
+        }
     }
 
     private static ChatFormatting rarityColor(String rarity) {
