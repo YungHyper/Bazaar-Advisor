@@ -24,4 +24,4 @@ Source and Gradle project files are kept here for maintainers. Players should us
 
 ## Flip feedback test branch
 
-On `test/flip-feedback`, press Insert or run `/bazad` to open the settings screen. Each suggestion is logged to the local Minecraft config JSONL file. Double-click `open-feedback-dashboard.bat` to open the dashboard at `http://127.0.0.1:8766`. Rate flips and add comments in the browser; Refresh is manual so it won't erase a draft while typing. Changes are saved to the same local file, the server binds to `127.0.0.1` only, and nothing is uploaded.
+On `test/flip-feedback`, press Insert or run `/bazad` to open the settings screen. Left-click a setting to increase/cycle it; right-click to decrease/cycle backward. Each suggestion is logged to the local Minecraft config JSONL file. Double-click `open-feedback-dashboard.bat` to open the dashboard at `http://127.0.0.1:8766`. Rate flips and add comments in the browser; Refresh is manual so it won't erase a draft while typing. Changes are saved to the same local file, the server binds to `127.0.0.1` only, and nothing is uploaded.

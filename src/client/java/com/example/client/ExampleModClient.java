@@ -18,6 +18,7 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
@@ -378,24 +379,35 @@ public final class ExampleModClient implements ClientModInitializer {
     }
 
     private static final class BazaarSettingsScreen extends Screen {
+        private int left;
+        private int top;
+        private Button flipsButton;
+        private Button countButton;
+        private Button intervalButton;
+        private Button profitButton;
+        private Button booksButton;
+        private Button riskButton;
+        private Button sortButton;
+        private Button rowsButton;
+
         private BazaarSettingsScreen() {
             super(Component.literal("Bazaar Advisor Settings"));
         }
 
         @Override
         protected void init() {
-            int left = width / 2 - 115;
-            int top = Math.max(32, height / 2 - 126);
-            addRenderableWidget(Button.builder(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")), button -> {
+            left = width / 2 - 115;
+            top = Math.max(32, height / 2 - 126);
+            flipsButton = Button.builder(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")), button -> {
                 auctionFlipsEnabled = !auctionFlipsEnabled;
                 button.setMessage(Component.literal("Auction flips: " + (auctionFlipsEnabled ? "ON" : "OFF")));
                 if (auctionFlipsEnabled) scanAuctions();
-            }).bounds(left, top, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Messages per scan: " + auctionFlipCount), button -> {
+            }).bounds(left, top, 230, 20).build();
+            countButton = Button.builder(Component.literal("Messages per scan: " + auctionFlipCount), button -> {
                 auctionFlipCount = auctionFlipCount >= 10 ? 1 : auctionFlipCount + 1;
                 button.setMessage(Component.literal("Messages per scan: " + auctionFlipCount));
-            }).bounds(left, top + 25, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Scan interval: " + auctionScanIntervalTicks / 20 + "s"), button -> {
+            }).bounds(left, top + 25, 230, 20).build();
+            intervalButton = Button.builder(Component.literal("Scan interval: " + auctionScanIntervalTicks / 20 + "s"), button -> {
                 int[] intervals = {5, 10, 15, 30, 60};
                 int current = auctionScanIntervalTicks / 20;
                 int next = intervals[0];
@@ -407,32 +419,89 @@ public final class ExampleModClient implements ClientModInitializer {
                 }
                 auctionScanIntervalTicks = next * 20;
                 button.setMessage(Component.literal("Scan interval: " + next + "s"));
-            }).bounds(left, top + 50, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)), button -> {
+            }).bounds(left, top + 50, 230, 20).build();
+            profitButton = Button.builder(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)), button -> {
                 long[] floors = {100_000L, 250_000L, 500_000L, 1_000_000L, 2_000_000L, 5_000_000L};
                 int current = 0;
                 for (int i = 0; i < floors.length; i++) if (floors[i] == minimumAuctionProfit) current = i;
                 minimumAuctionProfit = floors[(current + 1) % floors.length];
                 button.setMessage(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)));
-            }).bounds(left, top + 75, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Books filter: " + booksLabel()), button -> {
+            }).bounds(left, top + 75, 230, 20).build();
+            booksButton = Button.builder(Component.literal("Books filter: " + booksLabel()), button -> {
                 booksMode = (booksMode + 1) % 3;
                 button.setMessage(Component.literal("Books filter: " + booksLabel()));
-            }).bounds(left, top + 100, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")), button -> {
+            }).bounds(left, top + 100, 230, 20).build();
+            riskButton = Button.builder(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")), button -> {
                 hideSuspicious = !hideSuspicious;
                 button.setMessage(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")));
-            }).bounds(left, top + 125, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Bazaar sort: " + sortLabel()), button -> {
+            }).bounds(left, top + 125, 230, 20).build();
+            sortButton = Button.builder(Component.literal("Bazaar sort: " + sortLabel()), button -> {
                 sortMode = (sortMode + 1) % 4;
                 button.setMessage(Component.literal("Bazaar sort: " + sortLabel()));
-            }).bounds(left, top + 150, 230, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Visible Bazaar rows: " + visibleTradeRows), button -> {
+            }).bounds(left, top + 150, 230, 20).build();
+            rowsButton = Button.builder(Component.literal("Visible Bazaar rows: " + visibleTradeRows), button -> {
                 visibleTradeRows = visibleTradeRows >= 8 ? 1 : visibleTradeRows + 1;
                 button.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
-            }).bounds(left, top + 175, 230, 20).build());
+            }).bounds(left, top + 175, 230, 20).build();
+            addRenderableWidget(flipsButton);
+            addRenderableWidget(countButton);
+            addRenderableWidget(intervalButton);
+            addRenderableWidget(profitButton);
+            addRenderableWidget(booksButton);
+            addRenderableWidget(riskButton);
+            addRenderableWidget(sortButton);
+            addRenderableWidget(rowsButton);
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
                     .bounds(left, top + 205, 230, 20).build());
+        }
+
+        @Override
+        public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+            if (event.button() == 1) {
+                int row = (int) Math.floor((event.y() - top) / 25.0);
+                if (event.x() >= left && event.x() <= left + 230) {
+                    switch (row) {
+                        case 1 -> {
+                            auctionFlipCount = auctionFlipCount <= 1 ? 10 : auctionFlipCount - 1;
+                            countButton.setMessage(Component.literal("Messages per scan: " + auctionFlipCount));
+                        }
+                        case 2 -> stepInterval(-1);
+                        case 3 -> stepProfitFloor(-1);
+                        case 4 -> booksMode = (booksMode + 2) % 3;
+                        case 5 -> hideSuspicious = !hideSuspicious;
+                        case 6 -> sortMode = (sortMode + 3) % 4;
+                        case 7 -> visibleTradeRows = Math.max(1, visibleTradeRows - 1);
+                        default -> { return super.mouseClicked(event, doubleClick); }
+                    }
+                    syncSettingMessages();
+                    return true;
+                }
+            }
+            return super.mouseClicked(event, doubleClick);
+        }
+
+        private void stepInterval(int direction) {
+            int[] values = {5, 10, 15, 30, 60};
+            int index = 0;
+            for (int i = 0; i < values.length; i++) if (values[i] == auctionScanIntervalTicks / 20) index = i;
+            auctionScanIntervalTicks = values[Math.floorMod(index + direction, values.length)] * 20;
+        }
+
+        private void stepProfitFloor(int direction) {
+            long[] values = {100_000L, 250_000L, 500_000L, 1_000_000L, 2_000_000L, 5_000_000L};
+            int index = 0;
+            for (int i = 0; i < values.length; i++) if (values[i] == minimumAuctionProfit) index = i;
+            minimumAuctionProfit = values[Math.floorMod(index + direction, values.length)];
+        }
+
+        private void syncSettingMessages() {
+            countButton.setMessage(Component.literal("Messages per scan: " + auctionFlipCount));
+            intervalButton.setMessage(Component.literal("Scan interval: " + auctionScanIntervalTicks / 20 + "s"));
+            profitButton.setMessage(Component.literal("Min profit: " + formatCoins((double) minimumAuctionProfit)));
+            booksButton.setMessage(Component.literal("Books filter: " + booksLabel()));
+            riskButton.setMessage(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")));
+            sortButton.setMessage(Component.literal("Bazaar sort: " + sortLabel()));
+            rowsButton.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
         }
 
         @Override
@@ -442,11 +511,14 @@ public final class ExampleModClient implements ClientModInitializer {
             int top = Math.max(16, height / 2 - 140);
             context.fill(left, top, left + 260, top + 235, 0xF0182233);
             context.fill(left, top, left + 260, top + 2, 0xFFA8E6C1);
+                context.fill(left + 12, top + 24, left + 248, top + 25, 0x553F6C58);
+                context.fill(left + 12, top + 99, left + 248, top + 100, 0x553F6C58);
+                context.fill(left + 12, top + 174, left + 248, top + 175, 0x553F6C58);
             var text = context.textRenderer();
             text.accept(net.minecraft.client.gui.TextAlignment.CENTER, width / 2, top + 8,
-                    Component.literal("BAZAAR ADVISOR").withStyle(ChatFormatting.AQUA));
+                    Component.literal("BAZAAR TRADING DESK").withStyle(ChatFormatting.AQUA));
             text.accept(left + 14, top + 224,
-                    Component.literal("Flip notes stay local · /bazad rate <id> <1-5>").withStyle(ChatFormatting.GRAY));
+                    Component.literal("Left click: increase  |  Right click: decrease").withStyle(ChatFormatting.GRAY));
         }
 
         @Override
