@@ -16,7 +16,7 @@ Download the latest `.jar` from [GitHub Releases](https://github.com/YungHyper/B
 - Each suggestion is logged locally to `.minecraft/config/bazaar-advisor/flip-feedback.jsonl`; the log is not uploaded or committed.
 
 
-Flip suggestions require a recent completed BIN sale for the same normalized item NBT. Per-instance IDs/timestamps and modifier-list ordering are normalized; enchantments, stars, hot-potato upgrades, reforge, gemstones, skins, pet items, and other item values remain in the comparison. The scanner checks five auction pages every five seconds and uses realized sale prices after tax. This is intentionally conservative and can show no flips when there is no recent matching sale. Clicking a chat suggestion opens `/viewauction`; buying remains manual.
+Flip suggestions require a recent completed BIN sale for the same normalized item NBT (gear modifiers, enchantments, stars, hot-potato upgrades, reforge, gemstones, skins, and pet items all remain part of the comparison; per-instance IDs/timestamps and list ordering are ignored). The scanner checks up to 16 auction pages concurrently every 3 seconds by default and ranks by realized profit with sale-frequency as a tie-breaker. Auctions expiring within 20 seconds are skipped so a suggestion is always still buyable when you open it. This can still show no flips when there is no recent matching sale; that's intentional, not a bug. Clicking a chat suggestion opens `/viewauction`; buying always remains a manual, separate action.
 
 ## Development
 
@@ -24,4 +24,4 @@ Source and Gradle project files are kept here for maintainers. Players should us
 
 ## Flip feedback test branch
 
-On `test/flip-feedback`, press Insert or run `/bazad` to open the settings screen. Left-click a setting to increase/cycle it; right-click to decrease/cycle backward. Flip chat includes auction expiry and recent sale count, with a live action-bar countdown. Each suggestion is logged to the local Minecraft config JSONL file. Double-click `open-feedback-dashboard.bat` to open the dashboard at `http://127.0.0.1:8766`. Rate flips and add comments in the browser; Refresh is manual so it won't erase a draft while typing. Changes are saved to the same local file, the server binds to `127.0.0.1` only, and nothing is uploaded. Current UI test build: `0.1.23-test`.
+On `test/flip-feedback`, press Insert or run `/bazad` to open the settings screen. Left-click a setting to increase/cycle it; right-click to decrease/cycle backward. Each suggestion is logged to the local Minecraft config JSONL file. Double-click `open-feedback-dashboard.bat` to open the dashboard at `http://127.0.0.1:8766`. Rate flips and add comments in the browser; Refresh is manual so it won't erase a draft while typing. Changes are saved to the same local file, the server binds to `127.0.0.1` only, and nothing is uploaded. Current test build: `0.2.0-test`.
