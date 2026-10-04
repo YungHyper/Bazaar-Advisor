@@ -20,6 +20,8 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.HoverEvent;
@@ -65,6 +67,11 @@ public final class ExampleModClient implements ClientModInitializer {
             Identifier.fromNamespaceAndPath("bazaar_advisor", "main"));
     private static KeyMapping openKey;
     private static KeyMapping settingsKey;
+    private static KeyMapping flipKey;
+    private static boolean alertsEnabled = true;
+    private static AuctionFlip bestFlip;
+    private static int tuneTick = -1;
+    private static final float[] TUNE_PITCHES = {1.0f, 1.26f, 1.498f, 2.0f};
     private static boolean advisorVisible;
     private static boolean editMode;
     private static int booksMode;
@@ -100,7 +107,12 @@ public final class ExampleModClient implements ClientModInitializer {
         settingsKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
             "key.bazaar_advisor.settings", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_INSERT,
             KEY_CATEGORY));
+        flipKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+            "key.bazaar_advisor.open_flip", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V,
+            KEY_CATEGORY));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            tickTune(client);
+            while (flipKey.consumeClick()) openBestFlip(client);
             while (settingsKey.consumeClick()) client.setScreen(new BazaarSettingsScreen());
             while (openKey.consumeClick() && client.screen != null && isBazaarScreen(client.screen)) {
                 advisorVisible = !advisorVisible;
@@ -154,6 +166,11 @@ public final class ExampleModClient implements ClientModInitializer {
                             if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("alert").executes(context -> {
+                            alertsEnabled = !alertsEnabled;
+                            context.getSource().sendFeedback(Component.literal("Flip alert sound and popup: " + (alertsEnabled ? "ON" : "OFF")).withStyle(alertsEnabled ? ChatFormatting.GREEN : ChatFormatting.YELLOW));
+                            return 1;
+                        }))
                         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("rate").then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("id", StringArgumentType.word()).then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("rating", IntegerArgumentType.integer(1, 5)).executes(context -> {
                             String id = StringArgumentType.getString(context, "id");
                             int rating = IntegerArgumentType.getInteger(context, "rating");
@@ -300,6 +317,8 @@ public final class ExampleModClient implements ClientModInitializer {
         if (!freshFlips.isEmpty()) {
             sendChat(Component.literal("[Bazaar Advisor] Fresh BINs with recent sale proof:").withStyle(ChatFormatting.GOLD));
             freshFlips.forEach(ExampleModClient::sendFlipMessage);
+            bestFlip = freshFlips.get(0);
+            if (alertsEnabled) playAlert(Minecraft.getInstance(), bestFlip);
         }
         if (notifiedAuctionIds.size() > 3000) notifiedAuctionIds.clear();
     }
@@ -312,18 +331,50 @@ public final class ExampleModClient implements ClientModInitializer {
         String feedbackId = UUID.randomUUID().toString().substring(0, 8);
         pendingFlipRatings.put(feedbackId, flip);
         logFlipSuggestion(feedbackId, flip);
-        Component message = Component.literal("  #" + feedbackId + " " + flip.itemName() + "  ")
-            .withStyle(rarityColor(flip.rarity()))
-                .append(Component.literal("BUY " + formatCoins(flip.buyPrice()) + "  ").withStyle(style -> style
-                        .withColor(ChatFormatting.YELLOW)
+        Component hover = Component.literal("Click to open this auction\n").withStyle(ChatFormatting.YELLOW)
+                .append(Component.literal(flip.recentSaleCount() + " recent sales; realized " + formatCoins(flip.realizedSalePrice()) + " coins").withStyle(ChatFormatting.WHITE));
+        Component message = Component.empty()
+                .withStyle(style -> style
                         .withClickEvent(new ClickEvent.RunCommand("/viewauction " + flip.uuid()))
-                        .withHoverEvent(new HoverEvent.ShowText(Component.literal(flip.recentSaleCount() + " recent sales; realized " + formatCoins(flip.realizedSalePrice()) + " coins").withStyle(ChatFormatting.WHITE)))))
-                .append(Component.literal("NET +" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN))
+                        .withHoverEvent(new HoverEvent.ShowText(hover)))
+                .append(Component.literal("  " + flip.itemName()).withStyle(rarityColor(flip.rarity()), ChatFormatting.BOLD))
+                .append(Component.literal("  BUY " + formatCoins(flip.buyPrice())).withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal("  NET +" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN))
                 .append(Component.literal("  " + flip.recentSaleCount() + " sales").withStyle(ChatFormatting.AQUA))
                 .append(Component.literal(flip.exact() ? " EXACT" : " ~CORE").withStyle(flip.exact() ? ChatFormatting.GREEN : ChatFormatting.GRAY))
                 .append(Component.literal("  " + flip.listingAgeMs() / 1000 + "s old").withStyle(ChatFormatting.DARK_GRAY))
                 .append(Component.literal("  [BIN]").withStyle(ChatFormatting.GOLD));
         sendChat(message);
+    }
+
+    private static void playAlert(Minecraft client, AuctionFlip flip) {
+        tuneTick = 0;
+        client.gui.setTimes(2, 50, 10);
+        client.gui.setTitle(Component.literal("+" + formatCoins(flip.estimatedProfit())).withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD));
+        client.gui.setSubtitle(Component.literal(flip.itemName() + "  ").withStyle(rarityColor(flip.rarity()))
+                .append(Component.literal("[").withStyle(ChatFormatting.GRAY))
+                .append(flipKey.getTranslatedKeyMessage().copy().withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal("] to open").withStyle(ChatFormatting.GRAY)));
+    }
+
+    private static void tickTune(Minecraft client) {
+        if (tuneTick < 0) return;
+        if (tuneTick % 3 == 0 && tuneTick / 3 < TUNE_PITCHES.length) {
+            float pitch = TUNE_PITCHES[tuneTick / 3];
+            client.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_PLING, pitch));
+            if (tuneTick / 3 == TUNE_PITCHES.length - 1) client.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.NOTE_BLOCK_BELL, pitch));
+        }
+        if (++tuneTick > TUNE_PITCHES.length * 3) tuneTick = -1;
+    }
+
+    private static void openBestFlip(Minecraft client) {
+        AuctionFlip flip = bestFlip;
+        if (client.player == null) return;
+        if (flip == null || flip.endTime() <= System.currentTimeMillis()) {
+            sendChat(Component.literal("[Bazaar Advisor] No active flip to open.").withStyle(ChatFormatting.YELLOW));
+            return;
+        }
+        client.player.connection.sendCommand("viewauction " + flip.uuid());
     }
 
     private static Path feedbackLogPath() {
@@ -384,6 +435,7 @@ public final class ExampleModClient implements ClientModInitializer {
         private Button riskButton;
         private Button sortButton;
         private Button rowsButton;
+        private Button alertButton;
 
         private BazaarSettingsScreen() {
             super(Component.literal("Bazaar Advisor Settings"));
@@ -438,6 +490,10 @@ public final class ExampleModClient implements ClientModInitializer {
                 visibleTradeRows = visibleTradeRows >= 8 ? 1 : visibleTradeRows + 1;
                 button.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
             }).bounds(left, top + 175, 230, 20).build();
+            alertButton = Button.builder(Component.literal("Flip alert (sound + popup): " + (alertsEnabled ? "ON" : "OFF")), button -> {
+                alertsEnabled = !alertsEnabled;
+                button.setMessage(Component.literal("Flip alert (sound + popup): " + (alertsEnabled ? "ON" : "OFF")));
+            }).bounds(left, top + 200, 230, 20).build();
             addRenderableWidget(flipsButton);
             addRenderableWidget(countButton);
             addRenderableWidget(intervalButton);
@@ -446,8 +502,9 @@ public final class ExampleModClient implements ClientModInitializer {
             addRenderableWidget(riskButton);
             addRenderableWidget(sortButton);
             addRenderableWidget(rowsButton);
+            addRenderableWidget(alertButton);
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(left, top + 205, 230, 20).build());
+                    .bounds(left, top + 230, 230, 20).build());
         }
 
         @Override
@@ -466,6 +523,7 @@ public final class ExampleModClient implements ClientModInitializer {
                         case 5 -> hideSuspicious = !hideSuspicious;
                         case 6 -> sortMode = (sortMode + 3) % 4;
                         case 7 -> visibleTradeRows = Math.max(1, visibleTradeRows - 1);
+                        case 8 -> alertsEnabled = !alertsEnabled;
                         default -> { return super.mouseClicked(event, doubleClick); }
                     }
                     syncSettingMessages();
@@ -497,18 +555,19 @@ public final class ExampleModClient implements ClientModInitializer {
             riskButton.setMessage(Component.literal("Hide risky flips: " + (hideSuspicious ? "ON" : "OFF")));
             sortButton.setMessage(Component.literal("Bazaar sort: " + sortLabel()));
             rowsButton.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
+            alertButton.setMessage(Component.literal("Flip alert (sound + popup): " + (alertsEnabled ? "ON" : "OFF")));
         }
 
         @Override
         public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
             int left = width / 2 - 130;
             int top = Math.max(8, height / 2 - 130);
-            context.fill(left, top, left + 260, top + 260, 0xF0182233);
+            context.fill(left, top, left + 260, top + 285, 0xF0182233);
             context.fill(left, top, left + 260, top + 2, 0xFFA8E6C1);
-            context.fill(left + 10, top, left + 12, top + 260, 0xFF76C9A2);
+            context.fill(left + 10, top, left + 12, top + 285, 0xFF76C9A2);
             context.fill(left + 12, top + 26, left + 248, top + 27, 0x553F6C58);
             context.fill(left + 12, top + 126, left + 248, top + 127, 0x553F6C58);
-            context.fill(left + 12, top + 201, left + 248, top + 202, 0x553F6C58);
+            context.fill(left + 12, top + 226, left + 248, top + 227, 0x553F6C58);
             super.extractRenderState(context, mouseX, mouseY, delta);
             var text = context.textRenderer();
             text.accept(net.minecraft.client.gui.TextAlignment.CENTER, width / 2, top + 8,
