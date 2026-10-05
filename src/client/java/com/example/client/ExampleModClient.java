@@ -72,6 +72,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static AuctionFlip bestFlip;
     private static int tuneTick = -1;
     private static final float[] TUNE_PITCHES = {1.0f, 1.26f, 1.498f, 2.0f};
+    private static final java.util.ArrayDeque<AuctionFlip> recentFlips = new java.util.ArrayDeque<>();
     private static boolean advisorVisible;
     private static boolean editMode;
     private static int booksMode;
@@ -101,6 +102,7 @@ public final class ExampleModClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        QuickBuy.flipLookup = ExampleModClient::findRecentFlip;
         openKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
                 "key.bazaar_advisor.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B,
             KEY_CATEGORY));
@@ -166,6 +168,11 @@ public final class ExampleModClient implements ClientModInitializer {
                             if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("quickbuy").executes(context -> {
+                            QuickBuy.enabled = !QuickBuy.enabled;
+                            context.getSource().sendFeedback(Component.literal("Quick-buy screens: " + (QuickBuy.enabled ? "ON" : "OFF")).withStyle(QuickBuy.enabled ? ChatFormatting.GREEN : ChatFormatting.YELLOW));
+                            return 1;
+                        }))
                         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("alert").executes(context -> {
                             alertsEnabled = !alertsEnabled;
                             context.getSource().sendFeedback(Component.literal("Flip alert sound and popup: " + (alertsEnabled ? "ON" : "OFF")).withStyle(alertsEnabled ? ChatFormatting.GREEN : ChatFormatting.YELLOW));
@@ -185,6 +192,7 @@ public final class ExampleModClient implements ClientModInitializer {
                         }))))
         ));
         ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            QuickBuy.attach(screen);
             if (!(screen instanceof AbstractContainerScreen<?>) || !isBazaarScreen(screen)) return;
             loadTrades();
             ScreenExtensions extensions = ScreenExtensions.getExtensions(screen);
@@ -317,6 +325,8 @@ public final class ExampleModClient implements ClientModInitializer {
         if (!freshFlips.isEmpty()) {
             sendChat(Component.literal("[Bazaar Advisor] Fresh BINs with recent sale proof:").withStyle(ChatFormatting.GOLD));
             freshFlips.forEach(ExampleModClient::sendFlipMessage);
+            freshFlips.forEach(recentFlips::addFirst);
+            while (recentFlips.size() > 40) recentFlips.removeLast();
             bestFlip = freshFlips.get(0);
             if (alertsEnabled) playAlert(Minecraft.getInstance(), bestFlip);
         }
@@ -345,6 +355,16 @@ public final class ExampleModClient implements ClientModInitializer {
                 .append(Component.literal("  " + flip.listingAgeMs() / 1000 + "s old").withStyle(ChatFormatting.DARK_GRAY))
                 .append(Component.literal("  [BIN]").withStyle(ChatFormatting.GOLD));
         sendChat(message);
+    }
+
+    private static AuctionFlip findRecentFlip(String name, double price) {
+        String wanted = name.toLowerCase();
+        for (AuctionFlip flip : recentFlips) {
+            String candidate = flip.itemName().toLowerCase();
+            boolean sameName = candidate.equals(wanted) || wanted.contains(candidate) || candidate.contains(wanted);
+            if (sameName && (price < 0 || Math.abs(flip.buyPrice() - price) < 1)) return flip;
+        }
+        return null;
     }
 
     private static void playAlert(Minecraft client, AuctionFlip flip) {
@@ -436,6 +456,7 @@ public final class ExampleModClient implements ClientModInitializer {
         private Button sortButton;
         private Button rowsButton;
         private Button alertButton;
+        private Button quickBuyButton;
 
         private BazaarSettingsScreen() {
             super(Component.literal("Bazaar Advisor Settings"));
@@ -494,6 +515,10 @@ public final class ExampleModClient implements ClientModInitializer {
                 alertsEnabled = !alertsEnabled;
                 button.setMessage(Component.literal("Flip alert (sound + popup): " + (alertsEnabled ? "ON" : "OFF")));
             }).bounds(left, top + 200, 230, 20).build();
+            quickBuyButton = Button.builder(Component.literal("Quick-buy screens: " + (QuickBuy.enabled ? "ON" : "OFF")), button -> {
+                QuickBuy.enabled = !QuickBuy.enabled;
+                button.setMessage(Component.literal("Quick-buy screens: " + (QuickBuy.enabled ? "ON" : "OFF")));
+            }).bounds(left, top + 225, 230, 20).build();
             addRenderableWidget(flipsButton);
             addRenderableWidget(countButton);
             addRenderableWidget(intervalButton);
@@ -503,8 +528,9 @@ public final class ExampleModClient implements ClientModInitializer {
             addRenderableWidget(sortButton);
             addRenderableWidget(rowsButton);
             addRenderableWidget(alertButton);
+            addRenderableWidget(quickBuyButton);
             addRenderableWidget(Button.builder(Component.literal("Done"), button -> onClose())
-                    .bounds(left, top + 230, 230, 20).build());
+                    .bounds(left, top + 255, 230, 20).build());
         }
 
         @Override
@@ -524,6 +550,7 @@ public final class ExampleModClient implements ClientModInitializer {
                         case 6 -> sortMode = (sortMode + 3) % 4;
                         case 7 -> visibleTradeRows = Math.max(1, visibleTradeRows - 1);
                         case 8 -> alertsEnabled = !alertsEnabled;
+                        case 9 -> QuickBuy.enabled = !QuickBuy.enabled;
                         default -> { return super.mouseClicked(event, doubleClick); }
                     }
                     syncSettingMessages();
@@ -556,18 +583,19 @@ public final class ExampleModClient implements ClientModInitializer {
             sortButton.setMessage(Component.literal("Bazaar sort: " + sortLabel()));
             rowsButton.setMessage(Component.literal("Visible Bazaar rows: " + visibleTradeRows));
             alertButton.setMessage(Component.literal("Flip alert (sound + popup): " + (alertsEnabled ? "ON" : "OFF")));
+            quickBuyButton.setMessage(Component.literal("Quick-buy screens: " + (QuickBuy.enabled ? "ON" : "OFF")));
         }
 
         @Override
         public void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
             int left = width / 2 - 130;
             int top = Math.max(8, height / 2 - 130);
-            context.fill(left, top, left + 260, top + 285, 0xF0182233);
+            context.fill(left, top, left + 260, top + 310, 0xF0182233);
             context.fill(left, top, left + 260, top + 2, 0xFFA8E6C1);
-            context.fill(left + 10, top, left + 12, top + 285, 0xFF76C9A2);
+            context.fill(left + 10, top, left + 12, top + 310, 0xFF76C9A2);
             context.fill(left + 12, top + 26, left + 248, top + 27, 0x553F6C58);
             context.fill(left + 12, top + 126, left + 248, top + 127, 0x553F6C58);
-            context.fill(left + 12, top + 226, left + 248, top + 227, 0x553F6C58);
+            context.fill(left + 12, top + 251, left + 248, top + 252, 0x553F6C58);
             super.extractRenderState(context, mouseX, mouseY, delta);
             var text = context.textRenderer();
             text.accept(net.minecraft.client.gui.TextAlignment.CENTER, width / 2, top + 8,
