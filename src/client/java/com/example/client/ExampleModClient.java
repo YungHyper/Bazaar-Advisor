@@ -70,6 +70,8 @@ public final class ExampleModClient implements ClientModInitializer {
     private static KeyMapping flipKey;
     private static boolean alertsEnabled = true;
     private static AuctionFlip bestFlip;
+    private static AuctionFlip openedFlip;
+    private static long openedAt;
     private static int tuneTick = -1;
     private static final float[] TUNE_PITCHES = {1.0f, 1.26f, 1.498f, 2.0f};
     private static final java.util.ArrayDeque<AuctionFlip> recentFlips = new java.util.ArrayDeque<>();
@@ -94,7 +96,7 @@ public final class ExampleModClient implements ClientModInitializer {
     private static boolean auctionScanFailed;
     private static boolean auctionScanInProgress;
     private static boolean auctionScanStarted;
-    private static int auctionScanIntervalTicks = 40;
+    private static int auctionScanIntervalTicks = 20;
     private static long minimumAuctionProfit = 250_000L;
     private static int lastPageFlipCount;
     private static final Set<String> notifiedAuctionIds = new HashSet<>();
@@ -157,7 +159,7 @@ public final class ExampleModClient implements ClientModInitializer {
                             if (auctionFlipsEnabled) scanAuctions();
                             return 1;
                         })))
-                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("interval").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(2, 60)).executes(context -> {
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("interval").then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(1, 60)).executes(context -> {
                             auctionScanIntervalTicks = IntegerArgumentType.getInteger(context, "seconds") * 20;
                             context.getSource().sendFeedback(Component.literal("Auction scan interval: " + auctionScanIntervalTicks / 20 + "s").withStyle(ChatFormatting.AQUA));
                             return 1;
@@ -166,6 +168,10 @@ public final class ExampleModClient implements ClientModInitializer {
                             minimumAuctionProfit = IntegerArgumentType.getInteger(context, "amount");
                             context.getSource().sendFeedback(Component.literal("Min auction profit: " + formatCoins((double) minimumAuctionProfit)).withStyle(ChatFormatting.AQUA));
                             if (auctionFlipsEnabled) scanAuctions();
+                            return 1;
+                        })))
+                        .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("view").then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("uuid", StringArgumentType.word()).executes(context -> {
+                            openFlip(context.getSource().getClient(), StringArgumentType.getString(context, "uuid"));
                             return 1;
                         })))
                         .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("quickbuy").executes(context -> {
@@ -345,7 +351,7 @@ public final class ExampleModClient implements ClientModInitializer {
                 .append(Component.literal(flip.recentSaleCount() + " recent sales; realized " + formatCoins(flip.realizedSalePrice()) + " coins").withStyle(ChatFormatting.WHITE));
         Component message = Component.empty()
                 .withStyle(style -> style
-                        .withClickEvent(new ClickEvent.RunCommand("/viewauction " + flip.uuid()))
+                        .withClickEvent(new ClickEvent.RunCommand("/bazad view " + flip.uuid()))
                         .withHoverEvent(new HoverEvent.ShowText(hover)))
                 .append(Component.literal("  " + flip.itemName()).withStyle(rarityColor(flip.rarity()), ChatFormatting.BOLD))
                 .append(Component.literal("  BUY " + formatCoins(flip.buyPrice())).withStyle(ChatFormatting.YELLOW))
@@ -359,6 +365,12 @@ public final class ExampleModClient implements ClientModInitializer {
 
     private static AuctionFlip findRecentFlip(String name, double price) {
         String wanted = name.toLowerCase();
+        AuctionFlip opened = openedFlip;
+        if (opened != null && System.currentTimeMillis() - openedAt < 180_000) {
+            String candidate = opened.itemName().toLowerCase();
+            boolean sameName = candidate.equals(wanted) || wanted.contains(candidate) || candidate.contains(wanted);
+            if (sameName || (price >= 0 && Math.abs(opened.buyPrice() - price) < 1)) return opened;
+        }
         for (AuctionFlip flip : recentFlips) {
             String candidate = flip.itemName().toLowerCase();
             boolean sameName = candidate.equals(wanted) || wanted.contains(candidate) || candidate.contains(wanted);
@@ -394,7 +406,13 @@ public final class ExampleModClient implements ClientModInitializer {
             sendChat(Component.literal("[Bazaar Advisor] No active flip to open.").withStyle(ChatFormatting.YELLOW));
             return;
         }
-        client.player.connection.sendCommand("viewauction " + flip.uuid());
+        openFlip(client, flip.uuid());
+    }
+
+    private static void openFlip(Minecraft client, String uuid) {
+        openedFlip = recentFlips.stream().filter(flip -> flip.uuid().equals(uuid)).findFirst().orElse(null);
+        openedAt = System.currentTimeMillis();
+        if (client.player != null) client.player.connection.sendCommand("viewauction " + uuid);
     }
 
     private static Path feedbackLogPath() {
@@ -476,7 +494,7 @@ public final class ExampleModClient implements ClientModInitializer {
                 button.setMessage(Component.literal("Messages per scan: " + auctionFlipCount));
             }).bounds(left, top + 25, 230, 20).build();
             intervalButton = Button.builder(Component.literal("Scan interval: " + auctionScanIntervalTicks / 20 + "s"), button -> {
-                int[] intervals = {2, 3, 5, 10, 15, 30, 60};
+                int[] intervals = {1, 2, 3, 5, 10, 15, 30, 60};
                 int current = auctionScanIntervalTicks / 20;
                 int next = intervals[0];
                 for (int i = 0; i < intervals.length; i++) {
@@ -561,7 +579,7 @@ public final class ExampleModClient implements ClientModInitializer {
         }
 
         private void stepInterval(int direction) {
-            int[] values = {2, 3, 5, 10, 15, 30, 60};
+            int[] values = {1, 2, 3, 5, 10, 15, 30, 60};
             int index = 0;
             for (int i = 0; i < values.length; i++) if (values[i] == auctionScanIntervalTicks / 20) index = i;
             auctionScanIntervalTicks = values[Math.floorMod(index + direction, values.length)] * 20;

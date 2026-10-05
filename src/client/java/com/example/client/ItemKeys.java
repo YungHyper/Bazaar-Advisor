@@ -7,10 +7,14 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.nio.charset.StandardCharsets;
 import java.util.stream.Collectors;
 
 /** Builds item identity keys from decoded Hypixel item NBT: an exact key and a coarser value-driving "core" key. */
@@ -55,12 +59,22 @@ final class ItemKeys {
         if (id.isEmpty()) {
             CompoundTag plain = tag.copy();
             strip(plain);
-            return new Keys(canonical(plain), null);
+            return new Keys(hash(canonical(plain)), null);
         }
         if (id.equals("PET")) return petKeys(attributes);
         CompoundTag copy = attributes.copy();
         strip(copy);
-        return new Keys(canonical(copy), id.equals("ENCHANTED_BOOK") ? null : coreKey(id, attributes));
+        String core = id.equals("ENCHANTED_BOOK") ? null : coreKey(id, attributes);
+        return new Keys(hash(canonical(copy)), core == null ? null : hash(core));
+    }
+
+    private static String hash(String text) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static Keys petKeys(CompoundTag attributes) {
@@ -78,7 +92,7 @@ final class ItemKeys {
         boolean candy = pet.has("candyUsed") && pet.get("candyUsed").getAsInt() > 0;
         int level = petLevel(tier, exp);
         String base = "PET|" + type + "|" + tier + "|" + held + "|" + skin;
-        return new Keys(base + "|L" + level + "|c" + (candy ? 1 : 0), base + "|B" + levelBand(level));
+        return new Keys(hash(base + "|L" + level + "|c" + (candy ? 1 : 0)), hash(base + "|B" + levelBand(level)));
     }
 
     static int petLevel(String tier, double exp) {
